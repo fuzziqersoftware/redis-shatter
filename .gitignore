@@ -1,0 +1,4 @@
+*.o
+redis-shatter
+test_resource
+test_ketama
