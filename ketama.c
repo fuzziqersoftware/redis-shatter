@@ -35,7 +35,7 @@ uint16_t ketama_server_hash(const char* host, uint16_t pt) {
   return fnv1a_64_continue_string(host, fnv1a_64_start(&pt, sizeof(uint16_t)));
 }
 
-ketama_continuum* ketama_create_continuum(int num_hosts, const char** hosts) {
+ketama_continuum* ketama_create_continuum(void* resource_parent, int num_hosts, const char** hosts) {
   if (num_hosts > 254)
     return NULL; // too many hosts; need to use an int16_t or something
 
@@ -47,6 +47,7 @@ ketama_continuum* ketama_create_continuum(int num_hosts, const char** hosts) {
       sizeof(char*) * num_hosts + host_space_needed);
   if (!c)
     return NULL;
+  resource_create(resource_parent, c, ketama_delete_continuum);
   c->num_hosts = num_hosts;
   memset(c->points, 0xFF, 65536);
 

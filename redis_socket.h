@@ -24,6 +24,8 @@ typedef struct redis_socket {
   pthread_t thread;
   jmp_buf error_jmp;
 
+  void* data;
+
   int socket;
   struct sockaddr_in local;
   struct sockaddr_in remote;
@@ -47,7 +49,7 @@ void redis_socket_write(redis_socket* sock, const void* data, int size);
 
 void redis_socket_read_line(redis_socket* sock, char* line, int max_size);
 
-int redis_listen(int port, redis_socket_thread_func thread_func);
-redis_socket* redis_connect(const char* host, int port, redis_socket_thread_func thread_func);
+int redis_listen(int port, redis_socket_thread_func thread_func, void* data);
+redis_socket* redis_connect(void* resource_parent, const char* host, int port, redis_socket_thread_func thread_func, void* data);
 
 #endif // __REDIS_SOCKET_H

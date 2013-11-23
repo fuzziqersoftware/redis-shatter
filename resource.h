@@ -2,18 +2,19 @@
 #define __RESOURCE_H
 
 #include <pthread.h>
+#include <stdint.h>
 
 typedef struct resource {
   pthread_mutex_t mutex;
-  int64_t num_inbound_refs;
-  int64_t num_outbound_refs;
-  int64_t outbound_refs_space;
+  uint64_t num_inbound_refs;
+  uint64_t num_outbound_refs;
+  uint64_t outbound_refs_space;
   struct resource** outbound_refs;
   void (*free)(void*);
 } resource;
 
 void resource_create(void* parent, void* r, void* free);
-void resource_delete(void* r);
+void resource_delete(void* r, int num_explicit_refs);
 
 void resource_add_ref(void* r, void* target);
 void resource_delete_ref(void* r, void* target);

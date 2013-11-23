@@ -62,7 +62,7 @@ void resource_delete_ref(void* _r, void* _target) {
       sizeof(struct resource*) * (r->num_outbound_refs - x));
 
   if (target->num_inbound_refs == 0)
-    resource_delete(target);
+    resource_delete(target, 0);
 }
 
 void resource_create(void* _parent, void* _r, void* free) {
@@ -70,7 +70,7 @@ void resource_create(void* _parent, void* _r, void* free) {
   resource* parent = (resource*)_parent;
   resource* r = (resource*)_r;
 
-  r->num_inbound_refs = 0;
+  r->num_inbound_refs = (_parent ? 0 : 1);
   r->num_outbound_refs = 0;
   r->outbound_refs_space = 0;
   r->outbound_refs = NULL;
@@ -80,11 +80,11 @@ void resource_create(void* _parent, void* _r, void* free) {
     resource_add_ref(parent, r);
 }
 
-void resource_delete(void* _r) {
+void resource_delete(void* _r, int num_explicit_refs) {
 
   resource* r = (resource*)_r;
 
-  if (r->num_inbound_refs != 0) {
+  if (r->num_inbound_refs != num_explicit_refs) {
     // oh fuck
     printf("error: deleting resource with refcount == %lld\n",
         r->num_inbound_refs);
@@ -96,5 +96,6 @@ void resource_delete(void* _r) {
 
   if (r->outbound_refs)
     free(r->outbound_refs);
-  r->free(r);
+  if (r->free)
+    r->free(r);
 }

@@ -151,11 +151,11 @@ static void* client_thread(void* _data) {
   else
     printf("socket %d disconnected with no error\n", sock->socket);
 
-  resource_delete(sock);
+  resource_delete(sock, 1);
   return NULL;
 }
 
-int redis_listen(int port, void (*thread_func)(redis_socket*)) {
+int redis_listen(int port, void (*thread_func)(redis_socket*), void* data) {
 
   listen_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (listen_fd == -1)
@@ -200,6 +200,7 @@ int redis_listen(int port, void (*thread_func)(redis_socket*)) {
     }
     resource_create(NULL, sock, redis_socket_close);
 
+    sock->data = data;
     sock->thread_func = thread_func;
     sockaddr_size = sizeof(struct sockaddr_in);
     getsockname(sock->socket, (struct sockaddr*)(&sock->local),
@@ -211,7 +212,7 @@ int redis_listen(int port, void (*thread_func)(redis_socket*)) {
     if (pthread_create(&sock->thread, NULL, client_thread, sock)) {
       printf("error: failed to create thread for client on socket %d\n",
           sock->socket);
-      resource_delete(sock);
+      resource_delete(sock, 1);
     }
   }
 
@@ -228,7 +229,7 @@ void interrupt_server() {
   listen_fd = -1;
 }
 
-redis_socket* redis_connect(const char* host, int port, redis_socket_thread_func thread_func) {
+redis_socket* redis_connect(void* resource_parent, const char* host, int port, redis_socket_thread_func thread_func, void* data) {
 
   struct sockaddr_in remote;
   remote.sin_family = AF_INET;
@@ -258,8 +259,9 @@ redis_socket* redis_connect(const char* host, int port, redis_socket_thread_func
     close(sock_fd);
     return NULL;
   }
-  resource_create(NULL, sock, redis_socket_close);
+  resource_create(resource_parent, sock, redis_socket_close);
 
+  sock->data = data;
   sock->thread_func = thread_func;
   socklen_t sockaddr_size = sizeof(struct sockaddr_in);
   getsockname(sock->socket, (struct sockaddr*)(&sock->local),
@@ -271,8 +273,12 @@ redis_socket* redis_connect(const char* host, int port, redis_socket_thread_func
   if (sock->thread && pthread_create(&sock->thread, NULL, client_thread, sock)) {
     printf("error: failed to create thread for client on socket %d\n",
         sock->socket);
-    resource_delete(sock);
+    if (resource_parent)
+      resource_delete_ref(resource_parent, sock);
+    else
+      resource_delete(sock, 1);
     return NULL;
   }
+
   return sock;
 }

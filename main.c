@@ -7,6 +7,8 @@
 #include "debug.h"
 
 
+
+
 int main(int argc, char* argv[]) {
 
   if (build_command_definitions()) {
@@ -15,6 +17,6 @@ int main(int argc, char* argv[]) {
   }
 
   signal(SIGPIPE, SIG_IGN);
-  redis_listen(6379, redis_server_thread);
+  redis_listen(6379, redis_server_thread, NULL);
   return 0;
 }

@@ -12,19 +12,71 @@
 
 // command functions
 
-redis_command* redis_command_new(int num_args) {
+redis_command* redis_command_create(void* resource_parent, int num_args) {
   redis_command* cmd = (redis_command*)malloc(sizeof(redis_command) + sizeof(redis_argument) * num_args);
+  if (!cmd)
+    return NULL;
   cmd->num_args = num_args;
-  printf("created command %p\n", cmd);
+  resource_create(resource_parent, cmd, redis_command_delete);
   return cmd;
 }
 
-void redis_command_free(redis_command* cmd) {
+void redis_command_delete(redis_command* cmd) {
   printf("deleting command %p\n", cmd);
   int x;
   for (x = 0; x < cmd->num_args; x++)
     free(cmd->args[x].data);
   free(cmd);
+}
+
+redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size) {
+  redis_response* response;
+  switch (type) {
+    case RESPONSE_STATUS:
+    case RESPONSE_ERROR: {
+      response = (redis_response*)malloc(sizeof(redis_response) + size);
+      if (!response)
+        return NULL;
+      response->response_type = type;
+      break; }
+
+    case RESPONSE_INTEGER: {
+      response = (redis_response*)malloc(sizeof(redis_response));
+      if (!response)
+        return NULL;
+      response->response_type = type;
+      break; }
+
+    case RESPONSE_DATA: {
+      // size can be negative for a RESPONSE_DATA response, indicating a null value
+      response = (redis_response*)malloc(sizeof(redis_response) + (size < 0 ? 0 : size));
+      if (!response)
+        return NULL;
+      response->response_type = type;
+      response->data_value.size = size;
+      break; }
+
+    case RESPONSE_MULTI: {
+      // size can be negative for a RESPONSE_MULTI response, indicating a null value
+      response = (redis_response*)malloc(sizeof(redis_response) + ((size < 0 ? 0 : size) * sizeof(redis_command*)));
+      if (!response)
+        return NULL;
+      response->response_type = type;
+      response->multi_value.num_fields = size;
+      break; }
+
+    default:
+      return NULL;
+  }
+
+  resource_create(resource_parent, response, redis_response_delete);
+  return response;
+}
+
+void redis_response_delete(redis_response* r) {
+  // subfields for RESPONSE_MULTI type should be linked by resource_add_ref,
+  // so resource framework should take care of everything
+  free(r);
 }
 
 
@@ -43,53 +95,71 @@ int64_t redis_receive_int_line(redis_socket* sock, char expected_sentinel) {
   return strtoull(int_buffer, NULL, 0);
 }
 
-redis_command* redis_receive_command(redis_socket* sock) {
-  int64_t x, num_args = redis_receive_int_line(sock, '*');
-  int16_t rn;
+void redis_receive_fixed_length_line(redis_socket* sock, void* data, int64_t size) {
+  if (size > 0)
+    redis_socket_read(sock, data, size);
 
-  redis_command* cmd = redis_command_new(num_args);
+  int16_t rn;
+  redis_socket_read(sock, &rn, 2);
+  if (rn != 0x0A0D) // little endian
+    redis_error(sock, ERROR_INCOMPLETE_LINE, rn);
+}
+
+redis_command* redis_receive_command(void* resource_parent, redis_socket* sock) {
+  int64_t x, num_args = redis_receive_int_line(sock, '*');
+  redis_command* cmd = redis_command_create(resource_parent, num_args);
   if (!cmd)
     redis_error(sock, ERROR_OUT_OF_MEMORY, 0);
-  resource_create(sock, cmd, redis_command_free);
   for (x = 0; x < num_args; x++) {
     cmd->args[x].size = redis_receive_int_line(sock, '$');
     cmd->args[x].data = malloc(cmd->args[x].size);
     if (!cmd->args[x].data)
-      redis_error(sock, ERROR_OUT_OF_MEMORY, cmd->args[x].size); // TODO: this leaks the memory for 'cmd'
-    redis_socket_read(sock, cmd->args[x].data, cmd->args[x].size);
-
-    redis_socket_read(sock, &rn, 2); // expect a \r\n
-    if (rn != 0x0A0D) // little endian
-      redis_error(sock, ERROR_INCOMPLETE_LINE, rn); // TODO: this also leaks
+      redis_error(sock, ERROR_OUT_OF_MEMORY, cmd->args[x].size);
+    redis_receive_fixed_length_line(sock, cmd->args[x].data, cmd->args[x].size);
   }
 
   return cmd;
 }
 
-void redis_receive_reply(redis_socket* sock) {
-  char reply_type;
-  redis_socket_read(sock, &reply_type, 1);
-  switch (reply_type) {
-    case '+': // ok
-    case '-': // error
-      // TODO
-      // redis_socket_read_line(sock, );
-      break;
+redis_response* redis_receive_response(void* resource_parent, redis_socket* sock) {
+  uint8_t response_type;
+  int64_t size;
+  redis_response* response = NULL;
 
-    case ':': { // integer
-      // TODO
-      // int64_t num = redis_receive_int_line(sock, 0);
+  redis_socket_read(sock, &response_type, 1);
+  switch (response_type) {
+
+    case RESPONSE_STATUS:
+    case RESPONSE_ERROR: {
+      response = redis_response_create(resource_parent, response_type, STATUS_REPLY_BUFFER_LEN);
+      redis_socket_read_line(sock, response->status_str, STATUS_REPLY_BUFFER_LEN);
       break; }
 
-    case '$': { // data
-      // TODO
+    case RESPONSE_INTEGER: {
+      response = redis_response_create(resource_parent, response_type, 0);
+      response->int_value = redis_receive_int_line(sock, 0);
       break; }
-    case '*': { // compound
-      // TODO
+
+    case RESPONSE_DATA: {
+      size = redis_receive_int_line(sock, 0);
+      response = redis_response_create(resource_parent, response_type, size);
+      if (response->data_value.size >= 0)
+        redis_receive_fixed_length_line(sock, response->data_value.data, response->data_value.size);
       break; }
+
+    case RESPONSE_MULTI: {
+      size = redis_receive_int_line(sock, 0);
+      response = redis_response_create(resource_parent, response_type, 0);
+      int64_t x;
+      for (x = 0; x < response->multi_value.num_fields; x++)
+        response->multi_value.fields[x] = redis_receive_response(response, sock);
+      break; }
+
     default:
-      redis_error(sock, ERROR_PROTOCOL, reply_type);
+      redis_error(sock, ERROR_PROTOCOL, response_type);
   }
+
+  return response;
 }
 
 

@@ -14,7 +14,7 @@
   } \
 }
 
-int num_freed_resources = 0;
+int num_freed_resources;
 void* freed_resources[10];
 
 int index_for_freed_resource(void* res) {
@@ -37,12 +37,24 @@ int main(int argc, char* argv[]) {
 
   {
     printf("-- simple create & delete, no parent\n");
+    num_freed_resources = 0;
     resource res;
     resource_create(NULL, &res, free_resource);
     test_assert(num_freed_resources == 0);
-    resource_delete(&res);
+    resource_delete(&res, 1);
     test_assert(num_freed_resources == 1);
     test_assert(freed_resources[0] == &res);
+  }
+
+  {
+    printf("-- create & delete, no free function\n");
+    // basically just make sure it doesn't segfault
+    num_freed_resources = 0;
+    resource res;
+    resource_create(NULL, &res, NULL);
+    test_assert(num_freed_resources == 0);
+    resource_delete(&res, 1);
+    test_assert(num_freed_resources == 0);
   }
 
   {
@@ -52,14 +64,14 @@ int main(int argc, char* argv[]) {
     resource_create(NULL, &parent, free_resource);
     resource_create(&parent, &res, free_resource);
     test_assert(num_freed_resources == 0);
-    resource_delete(&parent);
+    resource_delete(&parent, 1);
     test_assert(num_freed_resources == 2);
     test_assert(freed_resources[0] == &res); // child should be deleted first
     test_assert(freed_resources[1] == &parent);
   }
 
   {
-    printf("-- create, addref, delete parent\n");
+    printf("-- create, addref, delete parent & explicit ref behavior\n");
     num_freed_resources = 0;
     resource parent, res;
     resource_create(NULL, &parent, free_resource);
@@ -67,10 +79,13 @@ int main(int argc, char* argv[]) {
     test_assert(num_freed_resources == 0);
     resource_add_ref(&parent, &res);
     test_assert(num_freed_resources == 0);
-    resource_delete(&parent);
+    resource_delete(&parent, 1);
+    test_assert(num_freed_resources == 1);
+    test_assert(freed_resources[0] == &parent); // res should not be deleted; it has an explicit inbound ref
+    resource_delete(&res, 1);
     test_assert(num_freed_resources == 2);
-    test_assert(freed_resources[0] == &res); // child should be deleted first
-    test_assert(freed_resources[1] == &parent);
+    test_assert(freed_resources[0] == &parent);
+    test_assert(freed_resources[1] == &res);
   }
 
   {
@@ -83,7 +98,7 @@ int main(int argc, char* argv[]) {
     resource_create(&r2, &r4, free_resource);
     resource_create(&r1, &r5, free_resource);
     test_assert(num_freed_resources == 0);
-    resource_delete(&r1);
+    resource_delete(&r1, 1);
     test_assert(num_freed_resources == 5);
     // make sure resources are deleted only after everything they reference
     test_assert(index_for_freed_resource(&r5) < index_for_freed_resource(&r1));
@@ -102,7 +117,7 @@ int main(int argc, char* argv[]) {
     resource_add_ref(&parent, &res);
     resource_add_ref(&parent, &res);
     test_assert(num_freed_resources == 0);
-    resource_delete(&parent);
+    resource_delete(&parent, 1);
     test_assert(num_freed_resources == 2);
     test_assert(freed_resources[0] == &res); // child should be deleted first
     test_assert(freed_resources[1] == &parent);
@@ -125,7 +140,7 @@ int main(int argc, char* argv[]) {
     resource_delete_ref(&parent, &res);
     test_assert(num_freed_resources == 1);
     test_assert(freed_resources[0] == &res);
-    resource_delete(&parent);
+    resource_delete(&parent, 1);
     test_assert(num_freed_resources == 2);
     test_assert(freed_resources[0] == &res); // child should be deleted first
     test_assert(freed_resources[1] == &parent);

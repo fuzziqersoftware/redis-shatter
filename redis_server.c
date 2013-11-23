@@ -414,7 +414,7 @@ void redis_server_handle_command(redis_socket* sock, redis_command* cmd) {
 
 void redis_server_thread(redis_socket* sock) {
   for (;;) {
-    redis_command* cmd = redis_receive_command(sock);
+    redis_command* cmd = redis_receive_command(sock, sock);
     redis_server_handle_command(sock, cmd);
     resource_delete_ref(sock, cmd);
   }
