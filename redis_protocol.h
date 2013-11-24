@@ -1,3 +1,6 @@
+#ifndef __REDIS_PROTOCOL_H
+#define __REDIS_PROTOCOL_H
+
 #include <stdint.h>
 
 #include "resource.h"
@@ -35,11 +38,11 @@ typedef struct _redis_response {
     char status_str[0]; // for RESPONSE_STATUS and RESPONSE_ERROR
     int64_t int_value; // for RESPONSE_INTEGER
     struct {
-      uint64_t size;
+      int64_t size;
       uint8_t data[0];
     } data_value;
     struct {
-      uint64_t num_fields;
+      int64_t num_fields;
       struct _redis_response* fields[0];
     } multi_value;
   };
@@ -55,5 +58,8 @@ redis_command* redis_receive_command(void* resource_parent, redis_socket* sock);
 redis_response* redis_receive_response(void* resource_parent, redis_socket* sock);
 
 void redis_send_command(redis_socket* sock, redis_command* cmd);
+void redis_send_response(redis_socket* sock, redis_response* resp);
 
-void redis_send_string_response(redis_socket* sock, const char* string, int error);
+void redis_send_string_response(redis_socket* sock, const char* string, char sentinel);
+
+#endif // __REDIS_PROTOCOL_H

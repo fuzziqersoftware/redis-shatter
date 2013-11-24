@@ -1,6 +1,12 @@
 #ifndef __REDIS_CLIENT_H
 #define __REDIS_CLIENT_H
 
+#include <pthread.h>
+
+#include "resource.h"
+#include "redis_socket.h"
+#include "redis_protocol.h"
+
 typedef struct _redis_response_wait_entry {
   resource res;
   pthread_cond_t ready;

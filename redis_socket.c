@@ -93,8 +93,18 @@ void redis_socket_read(redis_socket* sock, void* data, int size) {
   }
 
 #ifdef DEBUG_SOCKET_DATA
-  printf("> Received from client %d\n", sock->socket);
-  print_data(data, size);
+  printf("<%d: [", sock->socket);
+  int x;
+  for (x = 0; x < size; x++) {
+    int ch = *((char*)data + x);
+    if (ch < 0x20 || ch > 0x7F)
+      printf("\\x%02X", ch);
+    else
+      printf("%c", ch);
+  }
+  printf("]\n");
+  //printf("> Received from client %d\n", sock->socket);
+  //print_data(data, size);
 #endif
 }
 
@@ -112,8 +122,18 @@ void redis_socket_write(redis_socket* sock, const void* data, int size) {
   }
 
 #ifdef DEBUG_SOCKET_DATA
-  printf("> Sent to client %d\n", sock->socket);
-  print_data(data, size);
+  printf(">%d: [", sock->socket);
+  int x;
+  for (x = 0; x < size; x++) {
+    int ch = *((char*)data + x);
+    if (ch < 0x20 || ch > 0x7F)
+      printf("\\x%02X", ch);
+    else
+      printf("%c", ch);
+  }
+  printf("]\n");
+  //printf("> Sent to client %d\n", sock->socket);
+  //print_data(data, size);
 #endif
 }
 
@@ -155,7 +175,7 @@ static void* client_thread(void* _data) {
   return NULL;
 }
 
-int redis_listen(int port, void (*thread_func)(redis_socket*), void* data) {
+int redis_listen(int port, void (*thread_func)(redis_socket*), void* data, int register_data) {
 
   listen_fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (listen_fd == -1)
@@ -200,6 +220,7 @@ int redis_listen(int port, void (*thread_func)(redis_socket*), void* data) {
     }
     resource_create(NULL, sock, redis_socket_close);
 
+    resource_add_ref(sock, data);
     sock->data = data;
     sock->thread_func = thread_func;
     sockaddr_size = sizeof(struct sockaddr_in);

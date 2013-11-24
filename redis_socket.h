@@ -17,6 +17,8 @@
 
 #define DEFAULT_READ_BUFFER_SIZE   1024
 
+#define DEFAULT_REDIS_PORT 6379
+
 typedef struct redis_socket {
   resource res;
 
@@ -49,7 +51,7 @@ void redis_socket_write(redis_socket* sock, const void* data, int size);
 
 void redis_socket_read_line(redis_socket* sock, char* line, int max_size);
 
-int redis_listen(int port, redis_socket_thread_func thread_func, void* data);
+int redis_listen(int port, redis_socket_thread_func thread_func, void* data, int register_data);
 redis_socket* redis_connect(void* resource_parent, const char* host, int port, redis_socket_thread_func thread_func, void* data);
 
 #endif // __REDIS_SOCKET_H

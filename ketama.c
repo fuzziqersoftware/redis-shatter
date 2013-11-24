@@ -31,11 +31,11 @@ uint64_t fnv1a_64_start(const void* data, uint64_t size) {
 
 #define POINTS_PER_HOST 160 // must be divisible by 4
 
-uint16_t ketama_server_hash(const char* host, uint16_t pt) {
-  return fnv1a_64_continue_string(host, fnv1a_64_start(&pt, sizeof(uint16_t)));
+static uint16_t ketama_server_hash(void* key, int64_t size, uint16_t pt) {
+  return fnv1a_64_continue(key, size, fnv1a_64_start(&pt, sizeof(uint16_t)));
 }
 
-ketama_continuum* ketama_create_continuum(void* resource_parent, int num_hosts, const char** hosts) {
+ketama_continuum* ketama_continuum_create(void* resource_parent, int num_hosts, const char** hosts) {
   if (num_hosts > 254)
     return NULL; // too many hosts; need to use an int16_t or something
 
@@ -47,7 +47,7 @@ ketama_continuum* ketama_create_continuum(void* resource_parent, int num_hosts, 
       sizeof(char*) * num_hosts + host_space_needed);
   if (!c)
     return NULL;
-  resource_create(resource_parent, c, ketama_delete_continuum);
+  resource_create(resource_parent, c, ketama_continuum_delete);
   c->num_hosts = num_hosts;
   memset(c->points, 0xFF, 65536);
 
@@ -57,7 +57,7 @@ ketama_continuum* ketama_create_continuum(void* resource_parent, int num_hosts, 
     c->hosts[x] = host_ptr;
 
     for (y = 0; y < POINTS_PER_HOST; y++)
-      c->points[ketama_server_hash(host_ptr, y)] = x;
+      c->points[ketama_server_hash(host_ptr, strlen(host_ptr), y)] = x;
 
     host_ptr += (strlen(host_ptr) + 1);
   }
@@ -80,12 +80,12 @@ ketama_continuum* ketama_create_continuum(void* resource_parent, int num_hosts, 
   return c;
 }
 
-void ketama_delete_continuum(ketama_continuum* c) {
+void ketama_continuum_delete(ketama_continuum* c) {
   free(c);
 }
 
-uint8_t ketama_server_for_key(ketama_continuum* c, const char* key) {
-  return c->points[ketama_server_hash(key, 0)];
+uint8_t ketama_server_for_key(ketama_continuum* c, void* key, int64_t size) {
+  return c->points[ketama_server_hash(key, size, 0)];
 }
 
 const char* ketama_hostname_for_point(ketama_continuum* c, int host_index) {

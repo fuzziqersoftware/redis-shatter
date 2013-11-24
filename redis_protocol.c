@@ -22,7 +22,6 @@ redis_command* redis_command_create(void* resource_parent, int num_args) {
 }
 
 void redis_command_delete(redis_command* cmd) {
-  printf("deleting command %p\n", cmd);
   int x;
   for (x = 0; x < cmd->num_args; x++)
     free(cmd->args[x].data);
@@ -149,7 +148,7 @@ redis_response* redis_receive_response(void* resource_parent, redis_socket* sock
 
     case RESPONSE_MULTI: {
       size = redis_receive_int_line(sock, 0);
-      response = redis_response_create(resource_parent, response_type, 0);
+      response = redis_response_create(resource_parent, response_type, size);
       int64_t x;
       for (x = 0; x < response->multi_value.num_fields; x++)
         response->multi_value.fields[x] = redis_receive_response(response, sock);
@@ -180,10 +179,45 @@ void redis_send_command(redis_socket* sock, redis_command* cmd) {
   }
 }
 
+void redis_send_response(redis_socket* sock, redis_response* resp) {
+
+  int64_t x;
+  char size_buffer[24];
+
+  switch (resp->response_type) {
+
+    case RESPONSE_STATUS:
+    case RESPONSE_ERROR:
+      redis_send_string_response(sock, resp->status_str, resp->response_type);
+      break;
+
+    case RESPONSE_INTEGER:
+      sprintf(size_buffer, "%lld", resp->int_value);
+      redis_send_string_response(sock, size_buffer, resp->response_type);
+      break;
+
+    case RESPONSE_DATA:
+      sprintf(size_buffer, "%lld", resp->data_value.size);
+      redis_send_string_response(sock, size_buffer, resp->response_type);
+      if (resp->data_value.size >= 0) {
+        redis_socket_write(sock, resp->data_value.data, resp->data_value.size);
+        redis_socket_write(sock, "\r\n", 2);
+      }
+      break;
+
+    case RESPONSE_MULTI:
+      sprintf(size_buffer, "%lld", resp->multi_value.num_fields);
+      redis_send_string_response(sock, size_buffer, resp->response_type);
+      if (resp->multi_value.num_fields >= 0)
+        for (x = 0; x < resp->multi_value.num_fields; x++)
+          redis_send_response(sock, resp->multi_value.fields[x]);
+      break;
+  }
+}
+
 // TODO void redis_forward_reply(redis_socket* sock, redis_socket* dest_socket);
 
-void redis_send_string_response(redis_socket* sock, const char* string, int error) {
-  char sentinel = error ? '-' : '+';
+void redis_send_string_response(redis_socket* sock, const char* string, char sentinel) {
   redis_socket_write(sock, &sentinel, 1);
   redis_socket_write(sock, string, strlen(string));
   redis_socket_write(sock, "\r\n", 2);

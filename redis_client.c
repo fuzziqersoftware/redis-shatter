@@ -13,7 +13,22 @@ redis_client* redis_client_create(void* resource_parent, const char* host, int p
     return NULL;
   resource_create(NULL, c, redis_client_delete);
 
-  redis_socket* sock = redis_connect(c, host, port, NULL, c);
+  redis_socket* sock = NULL;
+  if (port == 0) {
+    // either the host is actually host:port, or the port is 6379
+    if (strchr(host, ':')) {
+      char* host_copy = strdup(host);
+      char* sep = strchr(host_copy, ':');
+      *sep = 0;
+      sock = redis_connect(c, host_copy, atoi(sep + 1), NULL, c);
+      free(host_copy);
+    } else {
+      sock = redis_connect(c, host, DEFAULT_REDIS_PORT, NULL, c);
+    }
+  } else {
+    sock = redis_connect(c, host, port, NULL, c);
+  }
+
   if (!sock) {
     resource_delete(c, 1);
     return NULL;
@@ -45,6 +60,7 @@ redis_response* redis_client_exec_command(redis_client* client, redis_command* c
   // is the head entry in the callback chain
 
   pthread_mutex_lock(&client->lock);
+  // TODO handle redis_error here somehow
   redis_send_command(client->sock, cmd);
   if (client->wait_chain_tail) {
     // others are waiting; wait for them to notify us
