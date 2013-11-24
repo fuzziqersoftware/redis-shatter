@@ -64,39 +64,14 @@ typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 #define redis_command_ZINTERSTORE   NULL
 #define redis_command_ZUNIONSTORE   NULL
 
-#define redis_command_DBSIZE   NULL
-#define redis_command_DEBUG   NULL
-#define redis_command_DEL   NULL
-#define redis_command_ECHO   NULL
 #define redis_command_FLUSHALL   NULL
 #define redis_command_INFO   NULL
 #define redis_command_KEYS   NULL
 #define redis_command_LASTSAVE   NULL
-#define redis_command_MGET   NULL
 #define redis_command_MSET   NULL
 #define redis_command_MSETNX   NULL
-#define redis_command_OBJECT   NULL
-#define redis_command_QUIT   NULL
 #define redis_command_SCRIPT   NULL
 #define redis_command_TIME   NULL
-
-void redis_command_RANDOMKEY(redis_socket* sock, redis_command* cmd) {
-  redis_multiclient* mc = (redis_multiclient*)sock->data;
-  redis_client* client = redis_client_for_index(sock, mc, rand() % mc->num_clients);
-  if (!client)
-    redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
-  else {
-    // TODO forward the response directly to sock instead of constructing a response object
-    redis_response* response = redis_client_exec_command(client, cmd);
-    redis_send_response(sock, response);
-    resource_delete_ref(cmd, response);
-    resource_delete_ref(sock, client);
-  }
-}
-
-void redis_command_PING(redis_socket* sock, redis_command* cmd) {
-  redis_send_string_response(sock, "PONG", RESPONSE_STATUS);
-}
 
 void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
 
@@ -105,11 +80,9 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
 
   redis_multiclient* mc = (redis_multiclient*)sock->data;
 
-  resource local_res;
-  resource_create(sock, &local_res, NULL);
-  resource_create_array(&local_res, int, server_to_key_count, mc->num_clients);
-  resource_create_array(&local_res, uint8_t, key_to_server, cmd->num_args - 1);
-  resource_create_array(&local_res, redis_command*, index_to_command, mc->num_clients);
+  resource_create_array(cmd, int, server_to_key_count, mc->num_clients);
+  resource_create_array(cmd, uint8_t, key_to_server, cmd->num_args - 1);
+  resource_create_array(cmd, redis_command*, index_to_command, mc->num_clients);
 
   if (!server_to_key_count || !key_to_server || !index_to_command) {
     redis_send_string_response(sock, "ERR allocation failure", RESPONSE_ERROR);
@@ -131,8 +104,7 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
       index_to_command[x]->num_args = 1;
       index_to_command[x]->args[0].data = cmd->args[0].data; // same command as the original
       index_to_command[x]->args[0].size = cmd->args[0].size; // same command as the original
-      resource_add_ref(&local_res, index_to_command[x]);
-      resource_add_ref(index_to_command[x], cmd);
+      resource_add_ref(cmd, index_to_command[x]);
     }
 
     for (y = 1; y < cmd->num_args; y++) {
@@ -144,7 +116,7 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
       server_cmd->num_args++;
     }
 
-    redis_response* resp = redis_response_create(&local_res, RESPONSE_MULTI, cmd->num_args - 1);
+    redis_response* resp = redis_response_create(cmd, RESPONSE_MULTI, cmd->num_args - 1);
     if (!resp)
       redis_error(sock, ERROR_OUT_OF_MEMORY, 0);
 
@@ -164,8 +136,8 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
       if (client_response->response_type != RESPONSE_MULTI ||
           client_response->multi_value.num_fields != index_to_command[x]->num_args - 1) {
 
-        resource_delete_ref(&local_res, resp);
-        resp = redis_response_printf(&local_res, RESPONSE_ERROR, "CHANNELERROR command forwarded by keys gave bad result on server %d (%s:%d)", x, client->host, client->port);
+        resource_delete_ref(cmd, resp);
+        resp = redis_response_printf(cmd, RESPONSE_ERROR, "CHANNELERROR command forwarded by keys gave bad result on server %d (%s:%d)", x, client->host, client->port);
         break;
       } else {
         for (y = 0; y < client_response->multi_value.num_fields; y++) {
@@ -185,18 +157,16 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
     redis_send_response(sock, resp);
   }
 
-  // clean everything up
   // TODO: this function seems to leak something, but it gets cleaned up when
   // the client disconnects. figure out what it is and clean it up properly
-  resource_delete_ref(sock, &local_res);
 }
 
-void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd) {
-  if (cmd->num_args < 2) {
+void redis_command_forward_by_key_index(redis_socket* sock, redis_command* cmd, int key_index) {
+  if (cmd->num_args < key_index + 1) {
     redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
   } else {
     redis_multiclient* mc = (redis_multiclient*)sock->data;
-    redis_client* client = redis_client_for_key(sock, mc, cmd->args[1].data, cmd->args[1].size);
+    redis_client* client = redis_client_for_key(sock, mc, cmd->args[key_index].data, cmd->args[key_index].size);
     if (!client)
       redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
     else {
@@ -208,15 +178,102 @@ void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd) {
     }
   }
 }
-redis_response* redis_client_exec_command(redis_client* client, redis_command* cmd);
+
+void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd, int key_index) {
+  redis_command_forward_by_key_index(sock, cmd, 1);
+}
+
+void redis_command_exec_on_all(void* resource_parent, redis_multiclient* mc, redis_command* cmd, redis_response** resps) {
+  // TODO parallelize
+  int x;
+  for (x = 0; x < mc->num_clients; x++) {
+    redis_client* client = redis_client_for_index(resource_parent, mc, x);
+    if (!client)
+      resps[x] = NULL;
+    else {
+      resps[x] = redis_client_exec_command(client, cmd);
+      resource_delete_ref(resource_parent, client);
+    }
+  }
+}
+
+void redis_command_DBSIZE(redis_socket* sock, redis_command* cmd) {
+  // CAVEAT EMPTOR: keys may exist on single redis instances that don't hash to that instance; they will be counted too
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+  resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  redis_command_exec_on_all(cmd, mc, cmd, resps);
+
+  int x;
+  int64_t total_db_size = 0;
+  for (x = 0; x < mc->num_clients; x++) {
+    if (!resps[x] || resps[x]->response_type != RESPONSE_INTEGER) {
+      redis_send_string_response(sock, "CHANNELERROR upstream server returned a bad response", RESPONSE_ERROR);
+      break;
+    }
+    total_db_size += resps[x]->int_value;
+  }
+  if (x == mc->num_clients)
+    redis_send_int_response(sock, total_db_size);
+}
+
+void redis_command_OBJECT(redis_socket* sock, redis_command* cmd) {
+  if (cmd->num_args < 3)
+    redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
+  else if (cmd->args[1].size != 8 || (
+      memcmp(cmd->args[1].data, "REFCOUNT", 8) &&
+      memcmp(cmd->args[1].data, "ENCODING", 8) &&
+      memcmp(cmd->args[1].data, "IDLETIME", 8)))
+    redis_send_string_response(sock, "ERR unsupported subcommand", RESPONSE_ERROR);
+  else
+    redis_command_forward_by_key_index(sock, cmd, 2);
+}
+
+void redis_command_DEBUG(redis_socket* sock, redis_command* cmd) {
+  if (cmd->num_args < 3)
+    redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
+  else if (cmd->args[1].size != 6 || memcmp(cmd->args[1].data, "OBJECT", 6))
+    redis_send_string_response(sock, "ERR unsupported subcommand", RESPONSE_ERROR);
+  else
+    redis_command_forward_by_key_index(sock, cmd, 2);
+}
+
+void redis_command_RANDOMKEY(redis_socket* sock, redis_command* cmd) {
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+  redis_client* client = redis_client_for_index(sock, mc, rand() % mc->num_clients);
+  if (!client)
+    redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
+  else {
+    // TODO forward the response directly to sock instead of constructing a response object
+    redis_response* response = redis_client_exec_command(client, cmd);
+    redis_send_response(sock, response);
+    resource_delete_ref(cmd, response);
+    resource_delete_ref(sock, client);
+  }
+}
+
+void redis_command_PING(redis_socket* sock, redis_command* cmd) {
+  redis_send_string_response(sock, "PONG", RESPONSE_STATUS);
+}
+
+void redis_command_ECHO(redis_socket* sock, redis_command* cmd) {
+  redis_response* resp = redis_response_create(cmd, RESPONSE_DATA, cmd->args[1].size);
+  if (!resp)
+    redis_error(sock, ERROR_OUT_OF_MEMORY, 0);
+  else {
+    memcpy(resp->data_value.data, cmd->args[1].data, cmd->args[1].size);
+    redis_send_response(sock, resp);
+  }
+}
+
+void redis_command_QUIT(redis_socket* sock, redis_command* cmd) {
+  redis_error(sock, 0, 0);
+  // TODO check if this actually does what I think it does
+}
 
 // called when we don't know what the fuck is going on
 void redis_command_default(redis_socket* sock, redis_command* cmd) {
-  int x;
-  printf("UNKNOWN COMMAND:");
-  for (x = 0; x < cmd->num_args; x++)
-    printf(" %d:%.*s", x, cmd->args[x].size, (const char*)cmd->args[x].data);
-  printf("\n");
+  printf("UNKNOWN COMMAND: ");
+  redis_command_print(cmd);
   redis_send_string_response(sock, "ERR unknown command", RESPONSE_ERROR);
 }
 

@@ -67,5 +67,6 @@ void redis_send_command(redis_socket* sock, redis_command* cmd);
 void redis_send_response(redis_socket* sock, redis_response* resp);
 
 void redis_send_string_response(redis_socket* sock, const char* string, char sentinel);
+void redis_send_int_response(redis_socket* sock, int64_t value);
 
 #endif // __REDIS_PROTOCOL_H

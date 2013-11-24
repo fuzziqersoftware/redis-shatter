@@ -305,3 +305,8 @@ void redis_send_string_response(redis_socket* sock, const char* string, char sen
   redis_socket_write(sock, string, strlen(string));
   redis_socket_write(sock, "\r\n", 2);
 }
+
+void redis_send_int_response(redis_socket* sock, int64_t value) {
+  char int_buffer[24];
+  redis_socket_write(sock, int_buffer, sprintf(int_buffer, ":%lld\r\n", value));
+}
