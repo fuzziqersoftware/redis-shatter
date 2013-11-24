@@ -77,12 +77,118 @@ typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 #define redis_command_MSETNX   NULL
 #define redis_command_OBJECT   NULL
 #define redis_command_QUIT   NULL
-#define redis_command_RANDOMKEY   NULL
 #define redis_command_SCRIPT   NULL
 #define redis_command_TIME   NULL
 
+void redis_command_RANDOMKEY(redis_socket* sock, redis_command* cmd) {
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+  redis_client* client = redis_client_for_index(sock, mc, rand() % mc->num_clients);
+  if (!client)
+    redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
+  else {
+    // TODO forward the response directly to sock instead of constructing a response object
+    redis_response* response = redis_client_exec_command(client, cmd);
+    redis_send_response(sock, response);
+    resource_delete_ref(cmd, response);
+    resource_delete_ref(sock, client);
+  }
+}
+
 void redis_command_PING(redis_socket* sock, redis_command* cmd) {
   redis_send_string_response(sock, "PONG", RESPONSE_STATUS);
+}
+
+void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
+
+  printf("received key-sharded command\n");
+  redis_command_print(cmd);
+
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+
+  resource local_res;
+  resource_create(sock, &local_res, NULL);
+  resource_create_array(&local_res, int, server_to_key_count, mc->num_clients);
+  resource_create_array(&local_res, uint8_t, key_to_server, cmd->num_args - 1);
+  resource_create_array(&local_res, redis_command*, index_to_command, mc->num_clients);
+
+  if (!server_to_key_count || !key_to_server || !index_to_command) {
+    redis_send_string_response(sock, "ERR allocation failure", RESPONSE_ERROR);
+
+  } else {
+
+    int x, y;
+    for (y = 1; y < cmd->num_args; y++) {
+      int server_index = redis_index_for_key(mc, cmd->args[y].data, cmd->args[y].size);
+      key_to_server[y - 1] = server_index;
+      server_to_key_count[server_index]++;
+    }
+
+    for (x = 0; x < mc->num_clients; x++) {
+      if (server_to_key_count[x] == 0)
+        continue;
+      index_to_command[x] = redis_command_create(sock, server_to_key_count[x] + 1);
+      index_to_command[x]->external_arg_data = 1;
+      index_to_command[x]->num_args = 1;
+      index_to_command[x]->args[0].data = cmd->args[0].data; // same command as the original
+      index_to_command[x]->args[0].size = cmd->args[0].size; // same command as the original
+      resource_add_ref(&local_res, index_to_command[x]);
+      resource_add_ref(index_to_command[x], cmd);
+    }
+
+    for (y = 1; y < cmd->num_args; y++) {
+      int server = key_to_server[y - 1];
+      redis_command* server_cmd = index_to_command[server];
+      server_cmd->args[server_cmd->num_args].data = cmd->args[y].data;
+      server_cmd->args[server_cmd->num_args].size = cmd->args[y].size;
+      server_cmd->args[server_cmd->num_args].annotation = y - 1; // corresponding response field in final response
+      server_cmd->num_args++;
+    }
+
+    redis_response* resp = redis_response_create(&local_res, RESPONSE_MULTI, cmd->num_args - 1);
+    if (!resp)
+      redis_error(sock, ERROR_OUT_OF_MEMORY, 0);
+
+    // TODO send commands in parallel and wait for responses in parallel
+    for (x = 0; x < mc->num_clients; x++) {
+      if (!index_to_command[x])
+        continue;
+
+      printf("executing command on server %d\n", x);
+      redis_command_print(index_to_command[x]);
+      redis_client* client = redis_client_for_index(sock, mc, x);
+      redis_response* client_response = redis_client_exec_command(client, index_to_command[x]);
+      printf("server %d has responded\n", x);
+      redis_response_print(client_response);
+      resource_delete_ref(sock, client);
+
+      if (client_response->response_type != RESPONSE_MULTI ||
+          client_response->multi_value.num_fields != index_to_command[x]->num_args - 1) {
+
+        resource_delete_ref(&local_res, resp);
+        resp = redis_response_printf(&local_res, RESPONSE_ERROR, "CHANNELERROR command forwarded by keys gave bad result on server %d (%s:%d)", x, client->host, client->port);
+        break;
+      } else {
+        for (y = 0; y < client_response->multi_value.num_fields; y++) {
+
+          int response_field = index_to_command[x]->args[y + 1].annotation;
+          resp->multi_value.fields[response_field] = client_response->multi_value.fields[y];
+          printf("filled response field %d/%lld = %p from server command %d\n", response_field, resp->multi_value.num_fields, resp->multi_value.fields[response_field], x);
+          redis_command_print(index_to_command[x]);
+          // note that multi_value->fields[response_field] isn't reffed from
+          // resp - it will be freed by the individual client_responses instead
+        }
+      }
+    }
+
+    printf("sending overall response\n");
+    redis_response_print(resp);
+    redis_send_response(sock, resp);
+  }
+
+  // clean everything up
+  // TODO: this function seems to leak something, but it gets cleaned up when
+  // the client disconnects. figure out what it is and clean it up properly
+  resource_delete_ref(sock, &local_res);
 }
 
 void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd) {
@@ -90,7 +196,7 @@ void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd) {
     redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
   } else {
     redis_multiclient* mc = (redis_multiclient*)sock->data;
-    redis_client* client = redis_client_for_key(mc, cmd->args[1].data, cmd->args[1].size);
+    redis_client* client = redis_client_for_key(sock, mc, cmd->args[1].data, cmd->args[1].size);
     if (!client)
       redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
     else {
@@ -98,6 +204,7 @@ void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd) {
       redis_response* response = redis_client_exec_command(client, cmd);
       redis_send_response(sock, response);
       resource_delete_ref(cmd, response);
+      resource_delete_ref(sock, client);
     }
   }
 }
@@ -179,7 +286,7 @@ struct {
   {"DEBUG",             redis_command_DEBUG}, // OBJECT key - Get debugging information about a key
   {"DECR",              redis_command_forward_by_key1}, // key - Decrement the integer value of a key by one
   {"DECRBY",            redis_command_forward_by_key1}, // key decrement - Decrement the integer value of a key by the given number
-  {"DEL",               redis_command_DEL}, // key [key ...] - Delete a key
+  {"DEL",               redis_command_forward_by_keys}, // key [key ...] - Delete a key
   {"DUMP",              redis_command_forward_by_key1}, // key - Return a serialized version of the value stored at the specified key.
   {"ECHO",              redis_command_ECHO}, // message - Echo the given string
   {"EXISTS",            redis_command_forward_by_key1}, // key - Determine if a key exists
@@ -220,7 +327,7 @@ struct {
   {"LREM",              redis_command_forward_by_key1}, // key count value - Remove elements from a list
   {"LSET",              redis_command_forward_by_key1}, // key index value - Set the value of an element in a list by its index
   {"LTRIM",             redis_command_forward_by_key1}, // key start stop - Trim a list to the specified range
-  {"MGET",              redis_command_MGET}, // key [key ...] - Get the values of all the given keys
+  {"MGET",              redis_command_forward_by_keys}, // key [key ...] - Get the values of all the given keys
   {"MSET",              redis_command_MSET}, // key value [key value ...] - Set multiple keys to multiple values
   {"MSETNX",            redis_command_MSETNX}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist (just do an EXISTS everywhere first)
   {"OBJECT",            redis_command_OBJECT}, // subcommand [arguments [arguments ...]] - Inspect the internals of Redis objects

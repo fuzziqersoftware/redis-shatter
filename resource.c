@@ -18,6 +18,11 @@
 // base resources (i.e. those whose only inbound reference is from a stack)
 //   have refcount=0, but are never autofreed since they have no inbound refs
 
+#ifdef DEBUG_RESOURCES
+int total_num_resources = 0;
+int total_num_refs = 0;
+#endif
+
 void resource_add_ref(void* _r, void* _target) {
 
   resource* r = (resource*)_r;
@@ -41,7 +46,9 @@ void resource_add_ref(void* _r, void* _target) {
   target->num_inbound_refs++;
 
 #ifdef DEBUG_RESOURCES
-  printf("resource: added reference %p(>%lld/%lld>) -> %p(>%lld/%lld>)\n", r,
+  total_num_refs++;
+  printf("(%d, %d) resource: added reference %p+%p(>%lld/%lld>) -> %p(>%lld/%lld>)\n",
+      total_num_resources, total_num_refs, r, r->outbound_refs,
       r->num_inbound_refs, r->num_outbound_refs, target,
       target->num_inbound_refs, target->num_outbound_refs);
 #endif
@@ -68,16 +75,20 @@ void resource_delete_ref(void* _r, void* _target) {
       sizeof(struct resource*) * (r->num_outbound_refs - x));
 
 #ifdef DEBUG_RESOURCES
-  printf("resource: removed reference %p(>%lld/%lld>) -> %p(>%lld/%lld>)\n", r,
+  total_num_refs--;
+  printf("(%d, %d) resource: removed reference %p+%p(>%lld/%lld>) -> %p(>%lld/%lld>)\n",
+      total_num_resources, total_num_refs, r, r->outbound_refs,
       r->num_inbound_refs, r->num_outbound_refs, target,
       target->num_inbound_refs, target->num_outbound_refs);
 #endif
 
+  if (target->num_inbound_refs < 0)
+    debug_abort_stacktrace();
   if (target->num_inbound_refs == 0)
     resource_delete(target, 0);
 }
 
-void resource_create(void* _parent, void* _r, void* free) {
+void resource_create(void* _parent, void* _r, void* free_fn) {
 
   resource* parent = (resource*)_parent;
   resource* r = (resource*)_r;
@@ -86,10 +97,13 @@ void resource_create(void* _parent, void* _r, void* free) {
   r->num_outbound_refs = 0;
   r->outbound_refs_space = 0;
   r->outbound_refs = NULL;
-  r->free = (void (*)(void*))free;
+  r->free = (void (*)(void*))free_fn;
 
 #ifdef DEBUG_RESOURCES
-  printf("resource: created %p(>%lld explicit)\n", r, r->num_inbound_refs);
+  total_num_resources++;
+  printf("(%d, %d) resource: created %p+%p(>%lld explicit)\n",
+      total_num_resources, total_num_refs, r, r->outbound_refs,
+      r->num_inbound_refs);
 #endif
 
   if (parent)
@@ -108,7 +122,10 @@ void resource_delete(void* _r, int num_explicit_refs) {
   }
 
 #ifdef DEBUG_RESOURCES
-  printf("resource: deleting %p(>%lld explicit)\n", r, r->num_inbound_refs);
+  total_num_resources--;
+  printf("(%d, %d) resource: deleting %p+%p(>%lld explicit)\n",
+      total_num_resources, total_num_refs, r, r->outbound_refs,
+      r->num_inbound_refs);
 #endif
 
   while (r->num_outbound_refs)
@@ -118,4 +135,20 @@ void resource_delete(void* _r, int num_explicit_refs) {
     free(r->outbound_refs);
   if (r->free)
     r->free(r);
+}
+
+resource* resource_malloc(void* parent, int size) {
+  size += sizeof(resource);
+  resource* r = (resource*)malloc(size);
+  if (!r)
+    return NULL;
+  resource_create(parent, r, free);
+  return r;
+}
+
+resource* resource_calloc(void* parent, int size) {
+  resource* r = resource_malloc(parent, size);
+  if (r)
+    memset(&r->data, 0, size);
+  return r;
 }

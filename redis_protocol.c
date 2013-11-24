@@ -23,10 +23,29 @@ redis_command* redis_command_create(void* resource_parent, int num_args) {
 }
 
 void redis_command_delete(redis_command* cmd) {
-  int x;
-  for (x = 0; x < cmd->num_args; x++)
-    free(cmd->args[x].data);
+  if (!cmd->external_arg_data) {
+    int x;
+    for (x = 0; x < cmd->num_args; x++)
+      free(cmd->args[x].data);
+  }
   free(cmd);
+}
+
+void redis_command_print(redis_command* cmd) {
+  int x, y;
+  printf("Command@%p[", cmd);
+  for (x = 0; x < cmd->num_args; x++) {
+    printf("Arg[%x, %x, %p, ", cmd->args[x].size, cmd->args[x].annotation, cmd->args[x].data);
+    for (y = 0; y < cmd->args[x].size; y++) {
+      int ch = *((char*)cmd->args[x].data + y);
+      if (ch < 0x20 || ch > 0x7F)
+        printf("\\x%02X", ch);
+      else
+        printf("%c", ch);
+    }
+    printf("], ");
+  }
+  printf("]\n");
 }
 
 redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size) {
@@ -89,6 +108,57 @@ void redis_response_delete(redis_response* r) {
   // subfields for RESPONSE_MULTI type should be linked by resource_add_ref,
   // so resource framework should take care of everything
   free(r);
+}
+
+void redis_response_print(redis_response* resp) {
+
+  if (!resp) {
+    printf("NULL\n");
+    return;
+  }
+
+  int x;
+  switch (resp->response_type) {
+    case RESPONSE_STATUS:
+      printf("StatusResponse@%p[%s]\n", resp, resp->status_str);
+      break;
+
+    case RESPONSE_ERROR:
+      printf("ErrorResponse@%p[%s]\n", resp, resp->status_str);
+      break;
+
+    case RESPONSE_INTEGER:
+      printf("IntegerResponse@%p[%lld]\n", resp, resp->int_value);
+      break;
+
+    case RESPONSE_DATA:
+      if (resp->data_value.size < 0)
+        printf("NullDataResponse@%p\n", resp);
+      else {
+        printf("DataResponse@%p[%lld, ", resp, resp->data_value.size);
+        for (x = 0; x < resp->data_value.size; x++) {
+          int ch = *((char*)resp->data_value.data + x);
+          if (ch < 0x20 || ch > 0x7F)
+            printf("\\x%02X", ch);
+          else
+            printf("%c", ch);
+        }
+        printf("]\n");
+      }
+      break;
+
+    case RESPONSE_MULTI:
+      if (resp->data_value.size < 0)
+        printf("NullMultiResponse@%p\n", resp);
+      else {
+        printf("MultiResponse@%p[%lld, \n", resp, resp->multi_value.num_fields);
+        for (x = 0; x < resp->multi_value.num_fields; x++) {
+          redis_response_print(resp->multi_value.fields[x]);
+        }
+        printf("]\n");
+      }
+      break;
+  }
 }
 
 

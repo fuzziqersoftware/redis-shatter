@@ -21,10 +21,13 @@
 typedef struct {
   void* data;
   int size;
+  int annotation;
 } redis_argument;
 
 typedef struct {
   resource res;
+
+  int external_arg_data;
 
   int num_args;
   redis_argument args[0];
@@ -50,10 +53,12 @@ typedef struct _redis_response {
 
 redis_command* redis_command_create(void* resource_parent, int num_args);
 void redis_command_delete(redis_command*);
+void redis_command_print(redis_command*);
 
 redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size);
 redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
 void redis_response_delete(redis_response*);
+void redis_response_print(redis_response*);
 
 redis_command* redis_receive_command(void* resource_parent, redis_socket* sock);
 redis_response* redis_receive_response(void* resource_parent, redis_socket* sock);

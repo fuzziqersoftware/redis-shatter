@@ -28,7 +28,7 @@ int main(int argc, char* argv[]) {
       }
     } else {
       num_backends++;
-      backend_netlocs = (const char**)malloc(sizeof(const char*) * num_backends);
+      backend_netlocs = (const char**)realloc(backend_netlocs, sizeof(const char*) * num_backends);
       backend_netlocs[num_backends - 1] = argv[x];
     }
   }
