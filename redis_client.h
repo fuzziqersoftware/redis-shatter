@@ -18,6 +18,8 @@ typedef struct {
 
   pthread_mutex_t lock;
 
+  char* host;
+  int port;
   redis_socket* sock;
 
   redis_response_wait_entry* wait_chain_head;

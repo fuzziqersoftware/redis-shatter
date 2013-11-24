@@ -15,19 +15,22 @@ redis_client* redis_client_create(void* resource_parent, const char* host, int p
 
   redis_socket* sock = NULL;
   if (port == 0) {
-    // either the host is actually host:port, or the port is 6379
+    // either the host is actually host:port, or the port is (implied) 6379
     if (strchr(host, ':')) {
       char* host_copy = strdup(host);
       char* sep = strchr(host_copy, ':');
       *sep = 0;
-      sock = redis_connect(c, host_copy, atoi(sep + 1), NULL, c);
-      free(host_copy);
+      c->host = host_copy;
+      c->port = atoi(sep + 1);
     } else {
-      sock = redis_connect(c, host, DEFAULT_REDIS_PORT, NULL, c);
+      c->host = strdup(host);
+      c->port = DEFAULT_REDIS_PORT;
     }
   } else {
-    sock = redis_connect(c, host, port, NULL, c);
+    c->host = strdup(host);
+    c->port = port;
   }
+  sock = redis_connect(c, c->host, c->port, NULL, c);
 
   if (!sock) {
     resource_delete(c, 1);
@@ -43,6 +46,8 @@ redis_client* redis_client_create(void* resource_parent, const char* host, int p
 
 void redis_client_delete(redis_client* c) {
   // resource abstraction takes care of everything else for us
+  if (c->host)
+    free(c->host);
   free(c);
 }
 
@@ -60,8 +65,15 @@ redis_response* redis_client_exec_command(redis_client* client, redis_command* c
   // is the head entry in the callback chain
 
   pthread_mutex_lock(&client->lock);
-  // TODO handle redis_error here somehow
-  redis_send_command(client->sock, cmd);
+
+  int error = setjmp(client->sock->error_jmp);
+  if (!error)
+    redis_send_command(client->sock, cmd);
+  else {
+    pthread_mutex_unlock(&client->lock);
+    return redis_response_printf(cmd, RESPONSE_ERROR, "ERR channel error on send (%d, %d)", client->sock->error1, client->sock->error2);
+  }
+
   if (client->wait_chain_tail) {
     // others are waiting; wait for them to notify us
     client->wait_chain_tail->next = &entry;
@@ -74,10 +86,19 @@ redis_response* redis_client_exec_command(redis_client* client, redis_command* c
   }
   pthread_mutex_unlock(&client->lock);
 
-  // yay we can read now
-  // TODO: figure out what happens if redis_error occurs here and deal with it
-  // (locking/lists on the client may be a problem)
-  redis_response* response = redis_receive_response(cmd, client->sock);
+  // if the client shows an error, some dude upstream caused an error, but the
+  // command had already been pipelined so we have to fail :(
+  redis_response* response;
+  if (client->sock->error1) {
+    response = redis_response_printf(cmd, RESPONSE_ERROR, "ERR upstream channel error (%d, %d)", client->sock->error1, client->sock->error2);
+  } else {
+    // yay we can read now
+    int error = setjmp(client->sock->error_jmp);
+    if (!error)
+      response = redis_receive_response(cmd, client->sock);
+    else
+      response = redis_response_printf(cmd, RESPONSE_ERROR, "ERR channel error on receive (%d, %d)", client->sock->error1, client->sock->error2);
+  }
 
   // notify the next thread, if any
   pthread_mutex_lock(&client->lock);

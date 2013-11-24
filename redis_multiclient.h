@@ -8,6 +8,8 @@
 typedef struct {
   resource res;
 
+  pthread_mutex_t lock;
+
   ketama_continuum* ketama;
 
   int num_clients;

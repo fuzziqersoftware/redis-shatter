@@ -52,6 +52,7 @@ redis_command* redis_command_create(void* resource_parent, int num_args);
 void redis_command_delete(redis_command*);
 
 redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size);
+redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
 void redis_response_delete(redis_response*);
 
 redis_command* redis_receive_command(void* resource_parent, redis_socket* sock);

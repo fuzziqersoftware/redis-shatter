@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,7 @@ redis_response* redis_response_create(void* resource_parent, uint8_t type, int64
   switch (type) {
     case RESPONSE_STATUS:
     case RESPONSE_ERROR: {
-      response = (redis_response*)malloc(sizeof(redis_response) + size);
+      response = (redis_response*)malloc(sizeof(redis_response) + size + 1);
       if (!response)
         return NULL;
       response->response_type = type;
@@ -70,6 +71,18 @@ redis_response* redis_response_create(void* resource_parent, uint8_t type, int64
 
   resource_create(resource_parent, response, redis_response_delete);
   return response;
+}
+
+redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...) {
+  const int buffer_size = STATUS_REPLY_BUFFER_LEN;
+  redis_response* resp = redis_response_create(resource_parent, type, buffer_size);
+
+  va_list va;
+  va_start(va, fmt);
+  vsnprintf(resp->status_str, buffer_size, fmt, va);
+  va_end(va);
+
+  return resp;
 }
 
 void redis_response_delete(redis_response* r) {
