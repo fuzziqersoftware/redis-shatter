@@ -205,6 +205,7 @@ int redis_listen(int port, void (*thread_func)(redis_socket*), void* data, int r
   int new_sockfd;
   while (listen_fd != -1) {
 
+    sockaddr_size = sizeof(struct sockaddr_in);
     new_sockfd = accept(listen_fd, (struct sockaddr*)(&connection),
                         &sockaddr_size);
 
