@@ -98,7 +98,11 @@ redis_response* redis_response_printf(void* resource_parent, uint8_t type, const
 
   va_list va;
   va_start(va, fmt);
-  vsnprintf(resp->status_str, buffer_size, fmt, va);
+  if (type == RESPONSE_DATA) {
+    resp->data_value.size = vsnprintf((char*)&resp->data_value.data[0], buffer_size, fmt, va);
+  } else {
+    vsnprintf(resp->status_str, buffer_size, fmt, va);
+  }
   va_end(va);
 
   return resp;
@@ -263,6 +267,8 @@ void redis_send_command(redis_socket* sock, redis_command* cmd) {
 }
 
 void redis_send_response(redis_socket* sock, redis_response* resp) {
+
+  redis_response_print(resp);
 
   int64_t x;
   char size_buffer[24];

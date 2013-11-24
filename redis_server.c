@@ -17,7 +17,6 @@
 typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 
 #define redis_command_AUTH   NULL
-#define redis_command_BGREWRITEAOF   NULL
 
 #define redis_command_BLPOP   NULL
 #define redis_command_BRPOP   NULL
@@ -27,6 +26,7 @@ typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 #define redis_command_FLUSHDB   NULL
 #define redis_command_MONITOR   NULL
 #define redis_command_MOVE   NULL
+#define redis_command_MSETNX   NULL
 #define redis_command_PSUBSCRIBE   NULL
 #define redis_command_PUBSUB   NULL
 #define redis_command_PUBLISH   NULL
@@ -45,7 +45,6 @@ typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 #define redis_command_EVAL   NULL
 #define redis_command_EVALSHA   NULL
 #define redis_command_EXEC   NULL
-#define redis_command_MIGRATE   NULL
 #define redis_command_MULTI   NULL
 #define redis_command_RENAME   NULL
 #define redis_command_RENAMENX   NULL
@@ -64,12 +63,7 @@ typedef void (*redis_command_handler)(redis_socket*, redis_command*);
 #define redis_command_ZINTERSTORE   NULL
 #define redis_command_ZUNIONSTORE   NULL
 
-#define redis_command_FLUSHALL   NULL
-#define redis_command_INFO   NULL
-#define redis_command_KEYS   NULL
-#define redis_command_LASTSAVE   NULL
 #define redis_command_MSET   NULL
-#define redis_command_MSETNX   NULL
 #define redis_command_SCRIPT   NULL
 #define redis_command_TIME   NULL
 
@@ -128,6 +122,12 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd) {
       printf("executing command on server %d\n", x);
       redis_command_print(index_to_command[x]);
       redis_client* client = redis_client_for_index(sock, mc, x);
+      if (!client) {
+        resource_delete_ref(cmd, resp);
+        resp = redis_response_printf(cmd, RESPONSE_ERROR, "CHANNELERROR backend %d is missing", x);
+        break;
+      }
+
       redis_response* client_response = redis_client_exec_command(client, index_to_command[x]);
       printf("server %d has responded\n", x);
       redis_response_print(client_response);
@@ -168,7 +168,7 @@ void redis_command_forward_by_key_index(redis_socket* sock, redis_command* cmd, 
     redis_multiclient* mc = (redis_multiclient*)sock->data;
     redis_client* client = redis_client_for_key(sock, mc, cmd->args[key_index].data, cmd->args[key_index].size);
     if (!client)
-      redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
+      redis_send_string_response(sock, "CHANNELERROR backend is missing", RESPONSE_ERROR);
     else {
       // TODO forward the response directly to sock instead of constructing a response object
       redis_response* response = redis_client_exec_command(client, cmd);
@@ -183,7 +183,7 @@ void redis_command_forward_by_key1(redis_socket* sock, redis_command* cmd, int k
   redis_command_forward_by_key_index(sock, cmd, 1);
 }
 
-void redis_command_exec_on_all(void* resource_parent, redis_multiclient* mc, redis_command* cmd, redis_response** resps) {
+void redis_command_forward_all(void* resource_parent, redis_multiclient* mc, redis_command* cmd, redis_response** resps) {
   // TODO parallelize
   int x;
   for (x = 0; x < mc->num_clients; x++) {
@@ -197,11 +197,79 @@ void redis_command_exec_on_all(void* resource_parent, redis_multiclient* mc, red
   }
 }
 
+void redis_command_all_collect_responses(redis_socket* sock, redis_command* cmd, int expected_response_type) {
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+  resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  redis_command_forward_all(cmd, mc, cmd, resps);
+
+  int x;
+  redis_response* resp = redis_response_create(cmd, RESPONSE_MULTI, mc->num_clients);
+  for (x = 0; x < mc->num_clients; x++) {
+    if (!resps[x] || resps[x]->response_type != expected_response_type) {
+      resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_DATA, "#! CHANNELERROR upstream server returned a bad response");
+    } else {
+      resp->multi_value.fields[x] = resps[x];
+    }
+  }
+
+  redis_send_response(sock, resp);
+}
+
+void redis_command_all_collect_status(redis_socket* sock, redis_command* cmd) {
+  redis_command_all_collect_responses(sock, cmd, RESPONSE_STATUS);
+}
+
+void redis_command_all_collect_integer(redis_socket* sock, redis_command* cmd) {
+  redis_command_all_collect_responses(sock, cmd, RESPONSE_INTEGER);
+}
+
+void redis_command_all_collect_data(redis_socket* sock, redis_command* cmd) {
+  redis_command_all_collect_responses(sock, cmd, RESPONSE_DATA);
+}
+
+void redis_command_all_collect_multi(redis_socket* sock, redis_command* cmd) {
+  redis_command_all_collect_responses(sock, cmd, RESPONSE_MULTI);
+}
+
+void redis_command_KEYS(redis_socket* sock, redis_command* cmd) {
+  // CAVEAT EMPTOR: this may double-list incorrectly-distributed keys
+  redis_multiclient* mc = (redis_multiclient*)sock->data;
+  resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  redis_command_forward_all(cmd, mc, cmd, resps);
+
+  int x, y;
+  int64_t num_keys = 0;
+  for (x = 0; x < mc->num_clients; x++) {
+    if (!resps[x] || resps[x]->response_type != RESPONSE_MULTI) {
+      redis_send_string_response(sock, "CHANNELERROR upstream server returned a bad response", RESPONSE_ERROR);
+      break;
+    }
+    if (resps[x]->multi_value.num_fields > 0)
+      num_keys += resps[x]->multi_value.num_fields;
+  }
+  if (x < mc->num_clients)
+    return;
+
+  redis_response* resp = redis_response_create(cmd, RESPONSE_MULTI, num_keys);
+  resp->multi_value.num_fields = 0;
+  for (x = 0; x < mc->num_clients; x++) {
+    if (resps[x]->multi_value.num_fields <= 0)
+      continue; // probably a null reply... redis doesn't give these but w/e
+    for (y = 0; y < resps[x]->multi_value.num_fields; y++) {
+      resp->multi_value.fields[resp->multi_value.num_fields] = resps[x]->multi_value.fields[y];
+      resp->multi_value.num_fields++;
+    }
+  }
+
+  //debug_assert(resp->multi_value.num_fields == num_keys);
+  redis_send_response(sock, resp);
+}
+
 void redis_command_DBSIZE(redis_socket* sock, redis_command* cmd) {
   // CAVEAT EMPTOR: keys may exist on single redis instances that don't hash to that instance; they will be counted too
   redis_multiclient* mc = (redis_multiclient*)sock->data;
   resource_create_array(cmd, redis_response*, resps, mc->num_clients);
-  redis_command_exec_on_all(cmd, mc, cmd, resps);
+  redis_command_forward_all(cmd, mc, cmd, resps);
 
   int x;
   int64_t total_db_size = 0;
@@ -228,6 +296,13 @@ void redis_command_OBJECT(redis_socket* sock, redis_command* cmd) {
     redis_command_forward_by_key_index(sock, cmd, 2);
 }
 
+void redis_command_MIGRATE(redis_socket* sock, redis_command* cmd) {
+  if (cmd->num_args < 6)
+    redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
+  else
+    redis_command_forward_by_key_index(sock, cmd, 3);
+}
+
 void redis_command_DEBUG(redis_socket* sock, redis_command* cmd) {
   if (cmd->num_args < 3)
     redis_send_string_response(sock, "ERR not enough arguments", RESPONSE_ERROR);
@@ -241,7 +316,7 @@ void redis_command_RANDOMKEY(redis_socket* sock, redis_command* cmd) {
   redis_multiclient* mc = (redis_multiclient*)sock->data;
   redis_client* client = redis_client_for_index(sock, mc, rand() % mc->num_clients);
   if (!client)
-    redis_send_string_response(sock, "ERR backend not connected", RESPONSE_ERROR);
+    redis_send_string_response(sock, "CHANNELERROR backend is missing", RESPONSE_ERROR);
   else {
     // TODO forward the response directly to sock instead of constructing a response object
     redis_response* response = redis_client_exec_command(client, cmd);
@@ -289,7 +364,6 @@ struct {
 
   // commands that probably will never be implemented
   {"AUTH",              redis_command_AUTH}, // password - Authenticate to the server
-  {"BGREWRITEAOF",      redis_command_BGREWRITEAOF}, // - Asynchronously rewrite the append-only file
   {"BLPOP",             redis_command_BLPOP}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
   {"BRPOP",             redis_command_BRPOP}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
   {"BRPOPLPUSH",        redis_command_BRPOPLPUSH}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
@@ -298,6 +372,7 @@ struct {
   {"FLUSHDB",           redis_command_FLUSHDB}, // - Remove all keys from the current database
   {"MONITOR",           redis_command_MONITOR}, // - Listen for all requests received by the server in real time
   {"MOVE",              redis_command_MOVE}, // key db - Move a key to another database
+  {"MSETNX",            redis_command_MSETNX}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist (just do an EXISTS everywhere first)
   {"PSUBSCRIBE",        redis_command_PSUBSCRIBE}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
   {"PUBSUB",            redis_command_PUBSUB}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
   {"PUBLISH",           redis_command_PUBLISH}, // channel message - Post a message to a channel
@@ -317,7 +392,6 @@ struct {
   {"EVAL",              redis_command_EVAL}, // script numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
   {"EVALSHA",           redis_command_EVALSHA}, // sha1 numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
   {"EXEC",              redis_command_EXEC}, // - Execute all commands issued after MULTI
-  {"MIGRATE",           redis_command_MIGRATE}, // host port key destination-db timeout [COPY] [REPLACE] - Atomically transfer a key from a Redis instance to another one.
   {"MULTI",             redis_command_MULTI}, // - Mark the start of a transaction block
   {"RENAME",            redis_command_RENAME}, // key newkey - Rename a key
   {"RENAMENX",          redis_command_RENAMENX}, // key newkey - Rename a key, only if the new key does not exist
@@ -338,6 +412,8 @@ struct {
 
   // commands that are easy to implement
   {"APPEND",            redis_command_forward_by_key1}, // key value - Append a value to a key
+  {"BGREWRITEAOF",      redis_command_all_collect_status}, // - Asynchronously rewrite the append-only file
+  {"BGSAVE",            redis_command_all_collect_status}, // - Asynchronously save db to disk
   {"BITCOUNT",          redis_command_forward_by_key1}, // key [start] [end] - Count set bits in a string
   {"DBSIZE",            redis_command_DBSIZE}, // - Return the number of keys in the selected database
   {"DEBUG",             redis_command_DEBUG}, // OBJECT key - Get debugging information about a key
@@ -349,7 +425,7 @@ struct {
   {"EXISTS",            redis_command_forward_by_key1}, // key - Determine if a key exists
   {"EXPIRE",            redis_command_forward_by_key1}, // key seconds - Set a keys time to live in seconds
   {"EXPIREAT",          redis_command_forward_by_key1}, // key timestamp - Set the expiration for a key as a UNIX timestamp
-  {"FLUSHALL",          redis_command_FLUSHALL}, // - Remove all keys from all databases
+  {"FLUSHALL",          redis_command_all_collect_status}, // - Remove all keys from all databases
   {"GET",               redis_command_forward_by_key1}, // key - Get the value of a key
   {"GETBIT",            redis_command_forward_by_key1}, // key offset - Returns the bit value at offset in the string value stored at key
   {"GETRANGE",          redis_command_forward_by_key1}, // key start end - Get a substring of the string stored at a key
@@ -371,9 +447,9 @@ struct {
   {"INCR",              redis_command_forward_by_key1}, // key - Increment the integer value of a key by one
   {"INCRBY",            redis_command_forward_by_key1}, // key increment - Increment the integer value of a key by the given amount
   {"INCRBYFLOAT",       redis_command_forward_by_key1}, // key increment - Increment the float value of a key by the given amount
-  {"INFO",              redis_command_INFO}, // [section] - Get information and statistics about the server
+  {"INFO",              redis_command_all_collect_data}, // [section] - Get information and statistics about the server
   {"KEYS",              redis_command_KEYS}, // pattern - Find all keys matching the given pattern
-  {"LASTSAVE",          redis_command_LASTSAVE}, // - Get the UNIX time stamp of the last successful save to disk  
+  {"LASTSAVE",          redis_command_all_collect_integer}, // - Get the UNIX time stamp of the last successful save to disk  
   {"LINDEX",            redis_command_forward_by_key1}, // key index - Get an element from a list by its index
   {"LINSERT",           redis_command_forward_by_key1}, // key BEFORE|AFTER pivot value - Insert an element before or after another element in a list
   {"LLEN",              redis_command_forward_by_key1}, // key - Get the length of a list
@@ -385,8 +461,8 @@ struct {
   {"LSET",              redis_command_forward_by_key1}, // key index value - Set the value of an element in a list by its index
   {"LTRIM",             redis_command_forward_by_key1}, // key start stop - Trim a list to the specified range
   {"MGET",              redis_command_forward_by_keys}, // key [key ...] - Get the values of all the given keys
+  {"MIGRATE",           redis_command_MIGRATE}, // host port key destination-db timeout [COPY] [REPLACE] - Atomically transfer a key from a Redis instance to another one.
   {"MSET",              redis_command_MSET}, // key value [key value ...] - Set multiple keys to multiple values
-  {"MSETNX",            redis_command_MSETNX}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist (just do an EXISTS everywhere first)
   {"OBJECT",            redis_command_OBJECT}, // subcommand [arguments [arguments ...]] - Inspect the internals of Redis objects
   {"PERSIST",           redis_command_forward_by_key1}, // key - Remove the expiration from a key
   {"PEXPIRE",           redis_command_forward_by_key1}, // key milliseconds - Set a keys time to live in milliseconds
@@ -415,7 +491,7 @@ struct {
   {"SREM",              redis_command_forward_by_key1}, // key member [member ...] - Remove one or more members from a set
   {"SSCAN",             redis_command_forward_by_key1}, // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate Set elements
   {"STRLEN",            redis_command_forward_by_key1}, // key - Get the length of the value stored in a key
-  {"TIME",              redis_command_TIME}, // - Return the current server time
+  {"TIME",              redis_command_all_collect_multi}, // - Return the current server time
   {"TTL",               redis_command_forward_by_key1}, // key - Get the time to live for a key
   {"TYPE",              redis_command_forward_by_key1}, // key - Determine the type stored at key
   {"ZADD",              redis_command_forward_by_key1}, // key score member [score member ...] - Add one or more members to a sorted set, or update its score if it already exists

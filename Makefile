@@ -1,6 +1,6 @@
 CC=gcc
 OBJECTS=debug.o resource.o redis_socket.o redis_protocol.o redis_client.o redis_multiclient.o redis_server.o main.o ketama.o
-CFLAGS=-g -Wall -DDEBUG_SOCKET_DATA -DDEBUG_RESOURCES
+CFLAGS=-g -Wall -DDEBUG_RESOURCES
 LDFLAGS=
 EXECUTABLE=redis-shatter
 

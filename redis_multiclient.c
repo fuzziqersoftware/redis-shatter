@@ -42,15 +42,17 @@ inline int redis_index_for_key(redis_multiclient* mc, void* key, int64_t size) {
 redis_client* redis_client_for_index(void* resource_parent, redis_multiclient* mc, int index) {
   pthread_mutex_lock(&mc->lock);
   redis_client* client = mc->clients[index];
-  if (client->sock->error1) {
-    printf("warning: client for server %d (%s:%d) shows error (%d, %d); reconnecting\n",
-        index, client->host, client->port, client->sock->error1, client->sock->error2);
-    client = redis_client_create(mc, client->host, client->port);
-    resource_delete_ref(mc, mc->clients[index]);
-    mc->clients[index] = client;
+  if (client) {
+    if (client->sock->error1) {
+      printf("warning: client for server %d (%s:%d) shows error (%d, %d); reconnecting\n",
+          index, client->host, client->port, client->sock->error1, client->sock->error2);
+      client = redis_client_create(mc, client->host, client->port);
+      resource_delete_ref(mc, mc->clients[index]);
+      mc->clients[index] = client;
+    }
+    if (resource_parent)
+      resource_add_ref(resource_parent, client);
   }
-  if (resource_parent)
-    resource_add_ref(resource_parent, client);
   pthread_mutex_unlock(&mc->lock);
   return client;
 }
