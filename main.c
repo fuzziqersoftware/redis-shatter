@@ -10,6 +10,10 @@
 
 
 
+void sigquit(int sig) {
+  redis_interrupt_server();
+}
+
 int main(int argc, char* argv[]) {
 
   printf("> fuzziqer software redis-shatter\n");
@@ -50,6 +54,8 @@ int main(int argc, char* argv[]) {
   free(backend_netlocs);
 
   printf("listening on port %d\n", port);
+  signal(SIGQUIT, sigquit);
   redis_listen(port, redis_server_thread, mc, 1);
+  printf("shutdown complete\n");
   return 0;
 }

@@ -245,7 +245,7 @@ int redis_listen(int port, void (*thread_func)(redis_socket*), void* data, int r
   return 0;
 }
 
-void interrupt_server() {
+void redis_interrupt_server() {
   if (listen_fd != -1)
     close(listen_fd);
   listen_fd = -1;

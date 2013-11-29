@@ -268,8 +268,6 @@ void redis_send_command(redis_socket* sock, redis_command* cmd) {
 
 void redis_send_response(redis_socket* sock, redis_response* resp) {
 
-  redis_response_print(resp);
-
   int64_t x;
   char size_buffer[24];
 
