@@ -25,8 +25,8 @@ resource* resource_malloc(void* parent, int size);
 resource* resource_calloc(void* parent, int size);
 
 #define resource_create_var(local_res, type, name, size) \
-  resource* __##name##__res = resource_calloc(local_res, size); \
-  type name = __##name##__res ? (type)&__##name##__res->data[0] : NULL
+  resource* name##_resource = resource_calloc(local_res, size); \
+  type name = name##_resource ? (type)&name##_resource->data[0] : NULL
 
 #define resource_create_array(local_res, type, name, count) \
   resource_create_var(local_res, type*, name, sizeof(type) * (count))

@@ -50,7 +50,7 @@ redis_client* redis_client_for_index(void* resource_parent, redis_multiclient* m
       resource_delete_ref(mc, mc->clients[index]);
       mc->clients[index] = client;
     }
-    if (resource_parent)
+    if (client && resource_parent)
       resource_add_ref(resource_parent, client);
   }
   pthread_mutex_unlock(&mc->lock);

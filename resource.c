@@ -28,6 +28,9 @@ void resource_add_ref(void* _r, void* _target) {
   resource* r = (resource*)_r;
   resource* target = (resource*)_target;
 
+  pthread_mutex_lock(&r->mutex);
+  pthread_mutex_lock(&target->mutex);
+
   if (r->num_outbound_refs >= r->outbound_refs_space) {
     if (r->outbound_refs_space == 0)
       r->outbound_refs_space = 16;
@@ -52,12 +55,18 @@ void resource_add_ref(void* _r, void* _target) {
       r->num_inbound_refs, r->num_outbound_refs, target,
       target->num_inbound_refs, target->num_outbound_refs);
 #endif
+
+  pthread_mutex_unlock(&target->mutex);
+  pthread_mutex_unlock(&r->mutex);
 }
 
 void resource_delete_ref(void* _r, void* _target) {
 
   resource* r = (resource*)_r;
   resource* target = (resource*)_target;
+
+  pthread_mutex_lock(&r->mutex);
+  pthread_mutex_lock(&target->mutex);
 
   // TODO: binary search that shit, or use a hash set (maybe better if there
   // tend to be a lot of refs)
@@ -84,6 +93,12 @@ void resource_delete_ref(void* _r, void* _target) {
 
   if (target->num_inbound_refs < 0)
     debug_abort_stacktrace();
+
+  pthread_mutex_unlock(&target->mutex);
+  pthread_mutex_unlock(&r->mutex);
+
+  // theoretically it should be safe to do this outside the mutex; if the
+  // refcount is zero then no other thread should be able to touch this object
   if (target->num_inbound_refs == 0)
     resource_delete(target, 0);
 }
@@ -93,6 +108,7 @@ void resource_create(void* _parent, void* _r, void* free_fn) {
   resource* parent = (resource*)_parent;
   resource* r = (resource*)_r;
 
+  pthread_mutex_init(&r->mutex, NULL);
   r->num_inbound_refs = (_parent ? 0 : 1);
   r->num_outbound_refs = 0;
   r->outbound_refs_space = 0;

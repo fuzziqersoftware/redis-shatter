@@ -93,12 +93,11 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd, int a
   for (x = 0; x < mc->num_clients; x++) {
     if (server_to_key_count[x] == 0)
       continue;
-    index_to_command[x] = redis_command_create(sock, (server_to_key_count[x] * args_per_key) + 1);
+    index_to_command[x] = redis_command_create(index_to_command_resource, (server_to_key_count[x] * args_per_key) + 1);
     index_to_command[x]->external_arg_data = 1;
     index_to_command[x]->num_args = 1;
     index_to_command[x]->args[0].data = cmd->args[0].data; // same command as the original
     index_to_command[x]->args[0].size = cmd->args[0].size; // same command as the original
-    resource_add_ref(cmd, index_to_command[x]);
   }
 
   for (y = 0; y < num_keys; y++) {
@@ -173,9 +172,6 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd, int a
   }
 
   redis_send_response(sock, resp);
-
-  // TODO: this function seems to leak something, but it gets cleaned up when
-  // the client disconnects. figure out what it is and clean it up properly
 }
 
 void redis_command_forward_by_keys_1_multi(redis_socket* sock, redis_command* cmd) {
