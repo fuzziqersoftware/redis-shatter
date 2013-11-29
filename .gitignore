@@ -1,4 +1,5 @@
 *.o
+gmon.out
 redis-shatter
-test_resource
-test_ketama
+resource_test
+ketama_test

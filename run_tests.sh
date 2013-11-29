@@ -1,6 +1,6 @@
 #!/bin/bash
 
-for TEST in test_*_exec
+for TEST in *_test
 do
 	./$TEST
 done

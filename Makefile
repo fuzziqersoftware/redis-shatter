@@ -4,7 +4,7 @@ CFLAGS=-g -Wall -pg
 LDFLAGS=-pg
 EXECUTABLE=redis-shatter
 
-TESTS=test_resource_exec test_ketama_exec
+TESTS=resource_test ketama_test
 
 all: $(EXECUTABLE) test
 
@@ -14,13 +14,13 @@ $(EXECUTABLE): $(OBJECTS)
 test: $(TESTS)
 	./run_tests.sh
 
-test_resource_exec: test_resource.o resource.o
-	g++ $(LDFLAGS) -o test_resource_exec $^
+resource_test: resource_test.o resource.o
+	g++ $(LDFLAGS) -o resource_test $^
 
-test_ketama_exec: test_ketama.o ketama.o resource.o
-	g++ $(LDFLAGS) -o test_ketama_exec $^
+ketama_test: ketama_test.o ketama.o resource.o
+	g++ $(LDFLAGS) -o ketama_test $^
 
 clean:
-	rm -rf *.dSYM *.o $(EXECUTABLE) $(TESTS)
+	rm -rf *.dSYM *.o $(EXECUTABLE) $(TESTS) gmon.out
 
 .PHONY: clean
