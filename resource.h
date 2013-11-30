@@ -11,6 +11,9 @@ typedef struct resource {
   uint64_t outbound_refs_space;
   struct resource** outbound_refs;
   void (*free)(void*);
+#ifdef DEBUG_RESOURCES
+  char annotation[0x100];
+#endif
 
   uint8_t data[0];
 } resource;
@@ -30,5 +33,11 @@ resource* resource_calloc(void* parent, int size);
 
 #define resource_create_array(local_res, type, name, count) \
   resource_create_var(local_res, type*, name, sizeof(type) * (count))
+
+#ifdef DEBUG_RESOURCES
+#define resource_annotate(r, ...) sprintf(((resource*)(r))->annotation, __VA_ARGS__)
+#else
+#define resource_annotate(r, ...)
+#endif
 
 #endif // __RESOURCE_H

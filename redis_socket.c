@@ -231,6 +231,8 @@ int redis_listen(int port, void (*thread_func)(redis_socket*), void* data, int r
     getpeername(sock->socket, (struct sockaddr*)(&sock->remote),
         &sockaddr_size);
 
+    resource_annotate(sock, "redis_socket[accepted, %s:%d]", inet_ntoa(sock->remote.sin_addr), ntohs(sock->remote.sin_port));
+
     if (pthread_create(&sock->thread, NULL, client_thread, sock)) {
       printf("error: failed to create thread for client on socket %d\n",
           sock->socket);
@@ -292,9 +294,10 @@ redis_socket* redis_connect(void* resource_parent, const char* host, int port, r
   getpeername(sock->socket, (struct sockaddr*)(&sock->remote),
       &sockaddr_size);
 
+  resource_annotate(sock, "redis_socket[connected, %s:%d]", inet_ntoa(sock->remote.sin_addr), ntohs(sock->remote.sin_port));
+
   if (sock->thread && pthread_create(&sock->thread, NULL, client_thread, sock)) {
-    printf("error: failed to create thread for client on socket %d\n",
-        sock->socket);
+    printf("error: failed to create thread for client on socket %d\n", sock->socket);
     if (resource_parent)
       resource_delete_ref(resource_parent, sock);
     else

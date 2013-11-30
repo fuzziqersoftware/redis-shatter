@@ -12,6 +12,7 @@ redis_client* redis_client_create(void* resource_parent, const char* host, int p
   if (!c)
     return NULL;
   resource_create(resource_parent, c, redis_client_delete);
+  resource_annotate(c, "redis_client[%s:%d]", host, port);
 
   redis_socket* sock = NULL;
   if (port == 0) {
@@ -54,6 +55,7 @@ void redis_client_delete(redis_client* c) {
 static int redis_client_send_command_and_wait_for_response(redis_client* client, redis_command* cmd, redis_response_wait_entry* entry) {
 
   resource_create(client, entry, NULL);
+  resource_annotate(entry, "redis_response_wait_entry");
   entry->next = NULL;
   pthread_cond_init(&entry->ready, NULL);
 

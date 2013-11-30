@@ -74,8 +74,11 @@ void redis_command_forward_by_keys(redis_socket* sock, redis_command* cmd, int a
 
   int num_keys = (cmd->num_args - 1) / args_per_key;
   resource_create_array(cmd, int, server_to_key_count, mc->num_clients);
+  resource_annotate(server_to_key_count_resource, "redis_command_forward_by_keys:server_to_key_count[%d]", mc->num_clients);
   resource_create_array(cmd, uint8_t, key_to_server, num_keys);
+  resource_annotate(key_to_server_resource, "redis_command_forward_by_keys:key_to_server[%d]", num_keys);
   resource_create_array(cmd, redis_command*, index_to_command, mc->num_clients);
+  resource_annotate(index_to_command_resource, "redis_command_forward_by_keys:index_to_command[%d]", mc->num_clients);
 
   if (!server_to_key_count || !key_to_server || !index_to_command) {
     redis_send_string_response(sock, "ERR allocation failure", RESPONSE_ERROR);
@@ -225,6 +228,7 @@ void redis_command_forward_all(void* resource_parent, redis_multiclient* mc, red
 void redis_command_all_collect_responses(redis_socket* sock, redis_command* cmd, int expected_response_type) {
   redis_multiclient* mc = (redis_multiclient*)sock->data;
   resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  resource_annotate(resps_resource, "redis_command_all_collect_responses:resps[%d]", mc->num_clients);
   redis_command_forward_all(cmd, mc, cmd, resps);
 
   int x;
@@ -260,6 +264,7 @@ void redis_command_KEYS(redis_socket* sock, redis_command* cmd) {
   // CAVEAT EMPTOR: this may double-list incorrectly-distributed keys
   redis_multiclient* mc = (redis_multiclient*)sock->data;
   resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  resource_annotate(resps_resource, "redis_command_KEYS:resps[%d]", mc->num_clients);
   redis_command_forward_all(cmd, mc, cmd, resps);
 
   int x, y;
@@ -294,6 +299,7 @@ void redis_command_DBSIZE(redis_socket* sock, redis_command* cmd) {
   // CAVEAT EMPTOR: keys may exist on single redis instances that don't hash to that instance; they will be counted too
   redis_multiclient* mc = (redis_multiclient*)sock->data;
   resource_create_array(cmd, redis_response*, resps, mc->num_clients);
+  resource_annotate(resps_resource, "redis_command_DBSIZE:resps[%d]", mc->num_clients);
   redis_command_forward_all(cmd, mc, cmd, resps);
 
   int x;

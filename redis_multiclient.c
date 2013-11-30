@@ -13,6 +13,7 @@ redis_multiclient* redis_multiclient_create(void* resource_parent, int num_netlo
   if (!mc)
     return NULL;
   resource_create(resource_parent, mc, redis_multiclient_delete);
+  resource_annotate(mc, "redis_multiclient[%d, %p]", num_netlocs, netlocs);
 
   mc->ketama = ketama_continuum_create(mc, num_netlocs, netlocs);
   mc->num_clients = num_netlocs;

@@ -19,6 +19,7 @@ redis_command* redis_command_create(void* resource_parent, int num_args) {
     return NULL;
   cmd->num_args = num_args;
   resource_create(resource_parent, cmd, redis_command_delete);
+  resource_annotate(cmd, "redis_command[%d]", num_args);
   return cmd;
 }
 
@@ -89,6 +90,7 @@ redis_response* redis_response_create(void* resource_parent, uint8_t type, int64
   }
 
   resource_create(resource_parent, response, redis_response_delete);
+  resource_annotate(response, "redis_response[%d, %d]", type, size);
   return response;
 }
 

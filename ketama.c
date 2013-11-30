@@ -48,6 +48,7 @@ ketama_continuum* ketama_continuum_create(void* resource_parent, int num_hosts, 
   if (!c)
     return NULL;
   resource_create(resource_parent, c, ketama_continuum_delete);
+  resource_annotate(c, "ketama_continuum[%d, %p]", num_hosts, hosts);
   c->num_hosts = num_hosts;
   memset(c->points, 0xFF, 65536);
 
