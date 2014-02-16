@@ -11,7 +11,7 @@
 #include <pthread.h>
 
 #include "debug.h"
-#include "redis_socket.h"
+#include "resource.h"
 
 
 
