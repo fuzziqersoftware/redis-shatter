@@ -1,14 +1,16 @@
 #ifndef __REDIS_PROTOCOL_H
 #define __REDIS_PROTOCOL_H
 
+#include <event2/buffer.h>
 #include <stdint.h>
 
 #include "resource.h"
-#include "redis_socket.h"
 
-#define ERROR_UNKNOWN_PROTOCOL     1001
-#define ERROR_INCOMPLETE_LINE      1002
-#define ERROR_PROTOCOL             1003
+#define ERROR_NONE              0
+#define ERROR_UNEXPECTED_INPUT  1
+#define ERROR_MEMORY            2
+#define ERROR_UNKNOWN_STATE     3
+#define ERROR_BUFFER_COPY       4
 
 #define RESPONSE_STATUS    '+'
 #define RESPONSE_ERROR     '-'
@@ -16,25 +18,27 @@
 #define RESPONSE_DATA      '$'
 #define RESPONSE_MULTI     '*'
 
-#define STATUS_REPLY_BUFFER_LEN   512
 
-typedef struct {
+////////////////////////////////////////////////////////////////////////////////
+// command/response manipulation
+
+struct redis_argument {
   void* data;
   int size;
   int annotation;
-} redis_argument;
+};
 
-typedef struct {
-  resource res;
+struct redis_command {
+  struct resource res;
 
   int external_arg_data;
 
   int num_args;
-  redis_argument args[0];
-} redis_command;
+  struct redis_argument args[0];
+};
 
-typedef struct _redis_response {
-  resource res;
+struct redis_response {
+  struct resource res;
 
   uint8_t response_type;
   union {
@@ -46,27 +50,67 @@ typedef struct _redis_response {
     } data_value;
     struct {
       int64_t num_fields;
-      struct _redis_response* fields[0];
+      struct redis_response* fields[0];
     } multi_value;
   };
-} redis_response;
+};
 
-redis_command* redis_command_create(void* resource_parent, int num_args);
-void redis_command_delete(redis_command*);
-void redis_command_print(redis_command*);
+struct redis_command* redis_command_create(void* resource_parent, int num_args);
+void redis_command_print(struct redis_command*);
 
-redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size);
-redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
-void redis_response_delete(redis_response*);
-void redis_response_print(redis_response*);
+struct redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size);
+struct redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
+void redis_response_print(struct redis_response*);
 
-redis_command* redis_receive_command(void* resource_parent, redis_socket* sock);
-redis_response* redis_receive_response(void* resource_parent, redis_socket* sock);
 
-void redis_send_command(redis_socket* sock, redis_command* cmd);
-void redis_send_response(redis_socket* sock, redis_response* resp);
+////////////////////////////////////////////////////////////////////////////////
+// command/response input
 
-void redis_send_string_response(redis_socket* sock, const char* string, char sentinel);
-void redis_send_int_response(redis_socket* sock, int64_t value);
+struct redis_command_parser_state {
+  struct resource res;
+
+  int state;
+  int error;
+
+  int num_command_args;
+  struct redis_command* command_in_progress;
+  int arg_in_progress;
+  int arg_in_progress_read_bytes;
+};
+
+struct redis_command_parser_state* redis_command_parser_create(
+    void* resource_parent);
+struct redis_command* redis_command_parser_continue(void* resource_parent,
+    struct redis_command_parser_state* st, struct evbuffer* buffer);
+
+
+struct redis_response_parser_state {
+  struct resource res;
+
+  int state;
+  int error;
+
+  struct redis_response* response_in_progress;
+  int data_response_bytes_read;
+
+  struct redis_response_parser_state* multi_in_progress;
+  int multi_response_current_field;
+};
+
+struct redis_response_parser_state* redis_response_parser_create(
+    void* resource_parent);
+struct redis_response* redis_response_parser_continue(void* resource_parent,
+    struct redis_response_parser_state* st, struct evbuffer* buffer);
+
+
+////////////////////////////////////////////////////////////////////////////////
+// command/response output
+
+void redis_write_command(struct evbuffer* buf, struct redis_command* cmd);
+
+void redis_write_string_response(struct evbuffer* buf, const char* string, char sentinel);
+void redis_write_int_response(struct evbuffer* buf, int64_t value, char sentinel);
+void redis_write_response(struct evbuffer* buf, struct redis_response* resp);
+
 
 #endif // __REDIS_PROTOCOL_H

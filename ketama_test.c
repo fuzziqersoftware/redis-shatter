@@ -22,7 +22,7 @@ int main(int argc, char* argv[]) {
 
   {
     printf("-- create empty continuum\n");
-    ketama_continuum* c = ketama_continuum_create(NULL, 0, NULL);
+    struct ketama_continuum* c = ketama_continuum_create(NULL, 0, NULL);
     test_assert(c->num_hosts == 0);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] == 0xFF);
@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- create continuum with one host\n");
     const char* hosts[1] = {"host1:8080"};
-    ketama_continuum* c = ketama_continuum_create(NULL, 1, hosts);
+    struct ketama_continuum* c = ketama_continuum_create(NULL, 1, hosts);
     test_assert(c->num_hosts == 1);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] == 0);
@@ -42,7 +42,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- make sure all points are set\n");
     const char* hosts[3] = {"host1:8080", "host2:8080", "host3:8080"};
-    ketama_continuum* c = ketama_continuum_create(NULL, 3, hosts);
+    struct ketama_continuum* c = ketama_continuum_create(NULL, 3, hosts);
     test_assert(c->num_hosts == 3);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] <= 2);
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- create continuum with two hosts and check point balance\n");
     const char* hosts[2] = {"host1:8080", "host2:8080"};
-    ketama_continuum* c = ketama_continuum_create(NULL, 2, hosts);
+    struct ketama_continuum* c = ketama_continuum_create(NULL, 2, hosts);
     test_assert(c->num_hosts == 2);
     int host_counts[2] = {0, 0};
     for (x = 0; x < 0x10000; x++) {
@@ -67,8 +67,8 @@ int main(int argc, char* argv[]) {
   {
     printf("-- check host removal affecting other hosts\n");
     const char* hosts[3] = {"host1:8080", "host2:8080", "host3:8080"};
-    ketama_continuum* c1 = ketama_continuum_create(NULL, 3, hosts);
-    ketama_continuum* c2 = ketama_continuum_create(NULL, 2, hosts); // host3 was removed
+    struct ketama_continuum* c1 = ketama_continuum_create(NULL, 3, hosts);
+    struct ketama_continuum* c2 = ketama_continuum_create(NULL, 2, hosts); // host3 was removed
     test_assert(c1->num_hosts == 3);
     test_assert(c2->num_hosts == 2);
     for (x = 0; x < 0x10000; x++) {

@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- simple create & delete, no parent\n");
     num_freed_resources = 0;
-    resource res;
+    struct resource res;
     resource_create(NULL, &res, free_resource);
     test_assert(num_freed_resources == 0);
     resource_delete(&res, 1);
@@ -50,7 +50,7 @@ int main(int argc, char* argv[]) {
     printf("-- create & delete, no free function\n");
     // basically just make sure it doesn't segfault
     num_freed_resources = 0;
-    resource res;
+    struct resource res;
     resource_create(NULL, &res, NULL);
     test_assert(num_freed_resources == 0);
     resource_delete(&res, 1);
@@ -60,7 +60,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- create & delete parent only\n");
     num_freed_resources = 0;
-    resource parent, res;
+    struct resource parent, res;
     resource_create(NULL, &parent, free_resource);
     resource_create(&parent, &res, free_resource);
     test_assert(num_freed_resources == 0);
@@ -73,7 +73,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- create, addref, delete parent & explicit ref behavior\n");
     num_freed_resources = 0;
-    resource parent, res;
+    struct resource parent, res;
     resource_create(NULL, &parent, free_resource);
     resource_create(NULL, &res, free_resource);
     test_assert(num_freed_resources == 0);
@@ -91,7 +91,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- delete tree of 5 resources\n");
     num_freed_resources = 0;
-    resource r1, r2, r3, r4, r5;
+    struct resource r1, r2, r3, r4, r5;
     resource_create(NULL, &r1, free_resource);
     resource_create(&r1, &r2, free_resource);
     resource_create(&r2, &r3, free_resource);
@@ -110,7 +110,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- delete resources with multiple references\n");
     num_freed_resources = 0;
-    resource parent, res;
+    struct resource parent, res;
     resource_create(NULL, &parent, free_resource);
     resource_create(&parent, &res, free_resource);
     test_assert(num_freed_resources == 0);
@@ -126,7 +126,7 @@ int main(int argc, char* argv[]) {
   {
     printf("-- resource_delete_ref can cause resource deletion\n");
     num_freed_resources = 0;
-    resource parent, res;
+    struct resource parent, res;
     resource_create(NULL, &parent, free_resource);
     resource_create(&parent, &res, free_resource);
     test_assert(num_freed_resources == 0);

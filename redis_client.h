@@ -1,34 +1,75 @@
-#ifndef __REDIS_CLIENT_H
-#define __REDIS_CLIENT_H
+#ifndef __REDIS_SOCKET_H
+#define __REDIS_SOCKET_H
 
-#include <pthread.h>
+#include <event2/bufferevent.h>
+#include <netinet/in.h>
+#include <stdint.h>
 
 #include "resource.h"
-#include "redis_socket.h"
 #include "redis_protocol.h"
 
-typedef struct _redis_response_wait_entry {
-  resource res;
-  pthread_cond_t ready;
-  struct _redis_response_wait_entry* next;
-} redis_response_wait_entry;
+#define ERROR_ASSERTION_FAILED     1
+#define ERROR_OUT_OF_MEMORY        2
 
-typedef struct {
-  resource res;
+#define CWAIT_FORWARD_RESPONSE                   0
+#define CWAIT_COLLECT_STATUS_RESPONSES           1
+#define CWAIT_SUM_INT_RESPONSES                  2
+#define CWAIT_COMBINE_MULTI_RESPONSES            3
+#define CWAIT_COLLECT_RESPONSES                  4
+#define CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY     5
 
-  pthread_mutex_t lock;
+struct redis_client;
 
-  char* host;
-  int port;
-  redis_socket* sock;
+struct redis_client_expected_response {
+  struct resource res;
 
-  redis_response_wait_entry* wait_chain_head;
-  redis_response_wait_entry* wait_chain_tail;
-} redis_client;
+  struct redis_client* client;
+  struct redis_client_expected_response* next_wait;
+  struct redis_client_expected_response* next_response;
 
-redis_client* redis_client_create(void* resource_parent, const char* host, int port);
-void redis_client_delete(redis_client* c);
+  struct redis_command* original_command;
+  int wait_type;
+  int num_responses_expected;
+  struct redis_response* error_response;
 
-redis_response* redis_client_exec_command(redis_client* client, redis_command* cmd);
+  union {
+    struct redis_response* response_to_forward;
+    int64_t int_sum;
+    struct {
+      int num_responses;
+      int expected_response_type;
+      struct redis_response* responses[0];
+    } collect_multi;
+    struct {
+    	int num_keys;
+    	int args_per_key;
+      int* server_to_key_count;
+      uint8_t* key_to_server;
+      struct redis_command** index_to_command;
+      struct redis_response* response_in_progress;
+    } collect_key;
+  };
+};
 
-#endif // __REDIS_CLIENT_H
+struct redis_client {
+  struct resource res;
+
+  void* ctx;
+  struct bufferevent* bev;
+  struct redis_command_parser_state* parser;
+
+  struct sockaddr_in local;
+  struct sockaddr_in remote;
+
+  struct redis_client_expected_response* response_chain_head;
+  struct redis_client_expected_response* response_chain_tail;
+};
+
+struct redis_client* redis_client_create(void* resource_parent, struct bufferevent* bev);
+struct evbuffer* redis_client_get_output_buffer(struct redis_client* c);
+
+struct redis_client_expected_response* redis_client_expect_response(
+    struct redis_client* c, int wait_type, struct redis_command* cmd, int size);
+void redis_client_remove_expected_response(struct redis_client* c);
+
+#endif // __REDIS_SOCKET_H

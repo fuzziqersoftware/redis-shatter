@@ -1,7 +1,7 @@
 CC=gcc
-OBJECTS=debug.o resource.o redis_socket.o redis_protocol.o redis_client.o redis_multiclient.o redis_server.o main.o ketama.o
-CFLAGS=-g -Wall -pg
-LDFLAGS=-pg
+OBJECTS=debug.o resource.o redis_client.o redis_protocol.o redis_backend.o main.o ketama.o network.o redis_proxy.o
+CFLAGS=-g -Wall
+LDFLAGS=-levent
 EXECUTABLE=redis-shatter
 
 TESTS=resource_test ketama_test

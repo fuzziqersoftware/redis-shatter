@@ -4,7 +4,7 @@
 #include <pthread.h>
 #include <stdint.h>
 
-typedef struct resource {
+struct resource {
   pthread_mutex_t mutex;
   uint64_t num_inbound_refs;
   uint64_t num_outbound_refs;
@@ -16,26 +16,31 @@ typedef struct resource {
 #endif
 
   uint8_t data[0];
-} resource;
+};
 
 void resource_create(void* parent, void* r, void* free);
 void resource_delete(void* r, int num_explicit_refs);
 
 void resource_add_ref(void* r, void* target);
 void resource_delete_ref(void* r, void* target);
+void resource_delete_explicit_ref(void* r);
 
-resource* resource_malloc(void* parent, int size);
-resource* resource_calloc(void* parent, int size);
+void print_resource_tree(void* root);
+
+struct resource* resource_malloc(void* parent, int size);
+struct resource* resource_calloc(void* parent, int size);
+void* resource_malloc_raw(void* parent, int size);
+void* resource_calloc_raw(void* parent, int size);
 
 #define resource_create_var(local_res, type, name, size) \
-  resource* name##_resource = resource_calloc(local_res, size); \
+  struct resource* name##_resource = resource_calloc(local_res, size); \
   type name = name##_resource ? (type)&name##_resource->data[0] : NULL
 
 #define resource_create_array(local_res, type, name, count) \
   resource_create_var(local_res, type*, name, sizeof(type) * (count))
 
 #ifdef DEBUG_RESOURCES
-#define resource_annotate(r, ...) sprintf(((resource*)(r))->annotation, __VA_ARGS__)
+#define resource_annotate(r, ...) sprintf(((struct resource*)(r))->annotation, __VA_ARGS__)
 #else
 #define resource_annotate(r, ...)
 #endif
