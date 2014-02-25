@@ -62,6 +62,8 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
 struct redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
 void redis_response_print(struct redis_response*);
 
+int redis_responses_equal(struct redis_response* a, struct redis_response* b);
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // command/response input

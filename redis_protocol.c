@@ -114,6 +114,41 @@ struct redis_response* redis_response_printf(void* resource_parent, uint8_t type
   return resp;
 }
 
+int redis_responses_equal(struct redis_response* a, struct redis_response* b) {
+  if (!a && !b)
+    return 1;
+  if (!a || !b)
+    return 0;
+  if (a->response_type != b->response_type)
+    return 0;
+
+  switch (a->response_type) {
+    case RESPONSE_STATUS:
+    case RESPONSE_ERROR:
+      return !strcmp(a->status_str, b->status_str);
+
+    case RESPONSE_INTEGER:
+      return (a->int_value == b->int_value);
+
+    case RESPONSE_DATA:
+      return (a->data_value.size == b->data_value.size) &&
+          !memcmp(a->data_value.data, b->data_value.data, a->data_value.size);
+
+    case RESPONSE_MULTI: {}
+      if (a->multi_value.num_fields != b->multi_value.num_fields)
+        return 0;
+
+      int x;
+      for (x = 0; x < a->multi_value.num_fields; x++)
+        if (!redis_responses_equal(a->multi_value.fields[x], b->multi_value.fields[x]))
+          return 0;
+      return 1;
+
+    default:
+      return 0;
+  }
+}
+
 void redis_response_print(struct redis_response* resp) {
 
   if (!resp) {

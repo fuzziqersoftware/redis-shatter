@@ -17,6 +17,7 @@
 #define CWAIT_COMBINE_MULTI_RESPONSES            3
 #define CWAIT_COLLECT_RESPONSES                  4
 #define CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY     5
+#define CWAIT_COLLECT_IDENTICAL_RESPONSES        6
 
 struct redis_client;
 

@@ -253,6 +253,22 @@ void redis_proxy_complete_response(struct redis_client_expected_response* e) {
             e->collect_key.response_in_progress);
         break;
 
+      case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
+        int x;
+        for (x = 0; x < e->collect_multi.num_responses; x++) {
+          if (!redis_responses_equal(e->collect_multi.responses[x],
+              e->collect_multi.responses[0]))
+            e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+                "ERR backends did not return identical results");
+        }
+        if (e->error_response)
+          break;
+
+        redis_write_response(redis_client_get_output_buffer(e->client),
+            e->collect_multi.responses[0]);
+
+        break; }
+
       default:
         redis_write_string_response(redis_client_get_output_buffer(e->client),
             "ERR invalid wait type on response completion", RESPONSE_ERROR);
@@ -298,6 +314,7 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
 
       case CWAIT_COMBINE_MULTI_RESPONSES:
       case CWAIT_COLLECT_RESPONSES:
+      case CWAIT_COLLECT_IDENTICAL_RESPONSES:
         e->collect_multi.responses[e->collect_multi.num_responses] = r;
         e->collect_multi.num_responses++;
         resource_add_ref(e, r);
@@ -356,58 +373,68 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
 
 
 ////////////////////////////////////////////////////////////////////////////////
+// proxy commands
+
+void redis_command_BACKEND(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+
+  if (cmd->num_args != 2) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR wrong number of arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  struct redis_backend* b = redis_backend_for_key(proxy, cmd->args[1].data,
+      cmd->args[1].size);
+
+  struct redis_response* resp = NULL;
+  if (b)
+    resp = redis_response_printf(cmd, RESPONSE_DATA, "%s:%d", b->host, b->port);
+  else
+    resp = redis_response_printf(cmd, RESPONSE_DATA, "NULL");
+  redis_write_response(redis_client_get_output_buffer(c), resp);
+  resource_delete_ref(cmd, resp);
+}
+
+void redis_command_BACKENDNUM(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+
+  if (cmd->num_args != 2) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR wrong number of arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  int backend_id = redis_index_for_key(proxy, cmd->args[1].data,
+      cmd->args[1].size);
+  redis_write_int_response(redis_client_get_output_buffer(c), backend_id,
+      RESPONSE_INTEGER);
+}
+
+void redis_command_BACKENDS(struct redis_proxy* proxy, struct redis_client* c,
+    struct redis_command* cmd) {
+
+  struct redis_response* resp = redis_response_create(cmd, RESPONSE_MULTI,
+      proxy->num_backends);
+  int x;
+  for (x = 0; x < proxy->num_backends; x++) {
+    if (proxy->backends[x])
+      resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_DATA,
+          "%s:%d", proxy->backends[x]->host, proxy->backends[x]->port);
+    else
+      resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_DATA,
+          "NULL");
+  }
+  redis_write_response(redis_client_get_output_buffer(c), resp);
+  resource_delete_ref(cmd, resp);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
 // command function implementations (NULL = unimplemented)
 
-#define redis_command_AUTH          NULL
 
-#define redis_command_BLPOP         NULL
-#define redis_command_BRPOP         NULL
-#define redis_command_BRPOPLPUSH    NULL
-#define redis_command_CLIENT        NULL
-#define redis_command_CONFIG        NULL
-#define redis_command_FLUSHDB       NULL
-#define redis_command_MONITOR       NULL
-#define redis_command_MOVE          NULL
-#define redis_command_MSETNX        NULL
-#define redis_command_PSUBSCRIBE    NULL
-#define redis_command_PUBSUB        NULL
-#define redis_command_PUBLISH       NULL
-#define redis_command_PUNSUBSCRIBE  NULL
-#define redis_command_SAVE          NULL
-#define redis_command_SELECT        NULL
-#define redis_command_SHUTDOWN      NULL
-#define redis_command_SLOWLOG       NULL
-#define redis_command_SUBSCRIBE     NULL
-#define redis_command_UNSUBSCRIBE   NULL
-#define redis_command_UNWATCH       NULL
-#define redis_command_WATCH         NULL
-
-#define redis_command_BITOP         NULL
-#define redis_command_DISCARD       NULL
-#define redis_command_EVAL          NULL
-#define redis_command_EVALSHA       NULL
-#define redis_command_EXEC          NULL
-#define redis_command_MULTI         NULL
-#define redis_command_RENAME        NULL
-#define redis_command_RENAMENX      NULL
-#define redis_command_RPOPLPUSH     NULL
-#define redis_command_SCAN          NULL
-#define redis_command_SCRIPT        NULL
-#define redis_command_SDIFF         NULL
-#define redis_command_SDIFFSTORE    NULL
-#define redis_command_SINTER        NULL
-#define redis_command_SINTERSTORE   NULL
-#define redis_command_SLAVEOF       NULL
-#define redis_command_SMOVE         NULL
-#define redis_command_SUNION        NULL
-#define redis_command_SUNIONSTORE   NULL
-#define redis_command_SYNC          NULL
-#define redis_command_ZINTERSTORE   NULL
-#define redis_command_ZUNIONSTORE   NULL
-
-#define redis_command_QUIT          NULL
-
-void redis_command_forward_by_keys(struct redis_proxy* proxy,
+void redis_command_partition_by_keys(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd, int args_per_key,
     int wait_type) {
 
@@ -469,20 +496,21 @@ void redis_command_forward_by_keys(struct redis_proxy* proxy,
   }
 }
 
-void redis_command_forward_by_keys_1_multi(struct redis_proxy* proxy,
+void redis_command_partition_by_keys_1_multi(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd) {
-  redis_command_forward_by_keys(proxy, c, cmd, 1, CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY);
+  redis_command_partition_by_keys(proxy, c, cmd, 1, CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY);
 }
 
-void redis_command_forward_by_keys_1_integer(struct redis_proxy* proxy,
+void redis_command_partition_by_keys_1_integer(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd) {
-  redis_command_forward_by_keys(proxy, c, cmd, 1, CWAIT_SUM_INT_RESPONSES);
+  redis_command_partition_by_keys(proxy, c, cmd, 1, CWAIT_SUM_INT_RESPONSES);
 }
 
-void redis_command_forward_by_keys_2_status(struct redis_proxy* proxy,
+void redis_command_partition_by_keys_2_status(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd) {
-  redis_command_forward_by_keys(proxy, c, cmd, 2, CWAIT_COLLECT_STATUS_RESPONSES);
+  redis_command_partition_by_keys(proxy, c, cmd, 2, CWAIT_COLLECT_STATUS_RESPONSES);
 }
+
 
 void redis_command_forward_by_key_index(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd, int key_index) {
@@ -503,6 +531,102 @@ void redis_command_forward_by_key1(struct redis_proxy* proxy,
   redis_command_forward_by_key_index(proxy, c, cmd, 1);
 }
 
+
+void redis_command_forward_by_keys(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd, int start_key_index,
+    int end_key_index) {
+
+  if (cmd->num_args <= start_key_index) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR not enough arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  if (end_key_index < 0 || end_key_index > cmd->num_args)
+    end_key_index = cmd->num_args;
+
+  // check that the keys all hash to the same server
+  int backend_id = redis_index_for_key(proxy, cmd->args[start_key_index].data,
+      cmd->args[start_key_index].size);
+  int x;
+  for (x = start_key_index + 1; x < end_key_index; x++) {
+    if (redis_index_for_key(proxy, cmd->args[x].data, cmd->args[x].size)
+        != backend_id) {
+      redis_write_string_response(redis_client_get_output_buffer(c),
+          "ERR keys hash to different backends", RESPONSE_ERROR);
+      return;
+    }
+  }
+
+  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+  struct redis_client_expected_response* e = redis_client_expect_response(c,
+      CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
+  redis_proxy_try_send_backend_command(b, e, cmd);
+}
+
+void redis_command_forward_by_keys_1(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+  redis_command_forward_by_keys(proxy, c, cmd, 1, -1);
+}
+
+void redis_command_forward_by_keys_1_2(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+  redis_command_forward_by_keys(proxy, c, cmd, 1, 2);
+}
+
+void redis_command_forward_by_keys_2(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+  redis_command_forward_by_keys(proxy, c, cmd, 2, -1);
+}
+
+void redis_command_ZACTIONSTORE(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+
+  // this is basically the same as redis_command_forward_by_keys except the
+  // number of checked keys is given in arg 2
+
+  if (cmd->num_args <= 3) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR not enough arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  int x, num_keys = 0;
+  const char* arg_data = (const char*)cmd->args[2].data;
+  for (x = 0; x < cmd->args[2].size; x++) {
+    if (arg_data[x] < '0' || arg_data[x] > '9') {
+      redis_write_string_response(redis_client_get_output_buffer(c),
+          "ERR key count is not an integer", RESPONSE_ERROR);
+      return;
+    }
+    num_keys = (num_keys * 10) + (arg_data[x] - '0');
+  }
+
+  if (num_keys < 1 || num_keys > cmd->num_args - 3) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR key count is invalid", RESPONSE_ERROR);
+    return;
+  }
+
+  // check that the keys all hash to the same server
+  int backend_id = redis_index_for_key(proxy, cmd->args[1].data,
+      cmd->args[1].size);
+  for (x = 0; x < num_keys; x++) {
+    if (redis_index_for_key(proxy, cmd->args[3 + x].data, cmd->args[3 + x].size)
+        != backend_id) {
+      redis_write_string_response(redis_client_get_output_buffer(c),
+          "ERR keys hash to different backends", RESPONSE_ERROR);
+      return;
+    }
+  }
+
+  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+  struct redis_client_expected_response* e = redis_client_expect_response(c,
+      CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
+  redis_proxy_try_send_backend_command(b, e, cmd);
+}
+
+
 void redis_command_forward_all(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd, int wait_type) {
 
@@ -520,6 +644,77 @@ void redis_command_forward_all(struct redis_proxy* proxy,
 void redis_command_all_collect_responses(struct redis_proxy* proxy,
     struct redis_client* c, struct redis_command* cmd) {
   redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_RESPONSES);
+}
+
+
+void redis_command_EVAL(struct redis_proxy* proxy, struct redis_client* c,
+    struct redis_command* cmd) {
+
+  if (cmd->num_args < 3) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR not enough arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  int x, num_keys = 0;
+  const char* arg_data = (const char*)cmd->args[2].data;
+  for (x = 0; x < cmd->args[2].size; x++) {
+    if (arg_data[x] < '0' || arg_data[x] > '9') {
+      redis_write_string_response(redis_client_get_output_buffer(c),
+          "ERR key count is not an integer", RESPONSE_ERROR);
+      return;
+    }
+    num_keys = (num_keys * 10) + (arg_data[x] - '0');
+  }
+
+  if (num_keys < 1 || num_keys > cmd->num_args - 3) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR key count is invalid", RESPONSE_ERROR);
+    return;
+  }
+
+  // check that the keys all hash to the same server
+  int backend_id = redis_index_for_key(proxy, cmd->args[3].data,
+      cmd->args[3].size);
+  for (x = 1; x < num_keys; x++) {
+    if (redis_index_for_key(proxy, cmd->args[x + 3].data, cmd->args[x + 3].size)
+        != backend_id) {
+      redis_write_string_response(redis_client_get_output_buffer(c),
+          "ERR keys hash to different backends", RESPONSE_ERROR);
+      return;
+    }
+  }
+
+  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+  struct redis_client_expected_response* e = redis_client_expect_response(c,
+      CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
+  redis_proxy_try_send_backend_command(b, e, cmd);
+}
+
+void redis_command_SCRIPT(struct redis_proxy* proxy, struct redis_client* c,
+    struct redis_command* cmd) {
+
+  // subcommands:
+  // EXISTS - not supported (we can't know which server to send the command to)
+  // FLUSH - forward to all backends, aggregate responses
+  // KILL - not supported
+  // LOAD <script> - forward to all backends, aggregate responses
+
+  if (cmd->num_args < 2) {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR not enough arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  if (cmd->args[1].size == 5 && !memcmp(cmd->args[1].data, "FLUSH", 5))
+    redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_STATUS_RESPONSES);
+  else if (cmd->args[1].size == 4 && !memcmp(cmd->args[1].data, "LOAD", 4))
+    redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_IDENTICAL_RESPONSES);
+  else {
+    redis_write_string_response(redis_client_get_output_buffer(c),
+        "ERR unsupported subcommand", RESPONSE_ERROR);
+    return;
+  }
 }
 
 void redis_command_KEYS(struct redis_proxy* proxy, struct redis_client* c,
@@ -631,153 +826,156 @@ struct {
   redis_command_handler handler;
 } command_definitions[] = {
 
-  // commands that probably will never be implemented
-  {"AUTH",              redis_command_AUTH},                      // password - Authenticate to the server
-  {"BLPOP",             redis_command_BLPOP},                     // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
-  {"BRPOP",             redis_command_BRPOP},                     // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
-  {"BRPOPLPUSH",        redis_command_BRPOPLPUSH},                // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
-  {"CLIENT",            redis_command_CLIENT},                    // KILL ip:port / LIST / GETNAME / SETNAME name
-  {"CONFIG",            redis_command_CONFIG},                    // GET parameter / REWRITE / SET param value / RESETSTAT
-  {"MONITOR",           redis_command_MONITOR},                   // - Listen for all requests received by the server in real time
-  {"MOVE",              redis_command_MOVE},                      // key db - Move a key to another database
-  {"MSETNX",            redis_command_MSETNX},                    // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist (just do an EXISTS everywhere first)
-  {"PSUBSCRIBE",        redis_command_PSUBSCRIBE},                // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
-  {"PUBSUB",            redis_command_PUBSUB},                    // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
-  {"PUBLISH",           redis_command_PUBLISH},                   // channel message - Post a message to a channel
-  {"PUNSUBSCRIBE",      redis_command_PUNSUBSCRIBE},              // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
-  {"SAVE",              redis_command_SAVE},                      // - Synchronously save the dataset to disk
-  {"SELECT",            redis_command_SELECT},                    // index - Change the selected database for the current connection
-  {"SHUTDOWN",          redis_command_SHUTDOWN},                  // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
-  {"SLOWLOG",           redis_command_SLOWLOG},                   // subcommand [argument] - Manages the Redis slow queries log
-  {"SUBSCRIBE",         redis_command_SUBSCRIBE},                 // channel [channel ...] - Listen for messages published to the given channels
-  {"UNSUBSCRIBE",       redis_command_UNSUBSCRIBE},               // [channel [channel ...]] - Stop listening for messages posted to the given channels
-  {"UNWATCH",           redis_command_UNWATCH},                   // - Forget about all watched keys
-  {"WATCH",             redis_command_WATCH},                     // key [key ...] - Watch the given keys to determine execution of the MULTI/EXEC block
+  // commands that are unimplemented
+  {"AUTH",              NULL}, // password - Authenticate to the server
+  {"BLPOP",             NULL}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
+  {"BRPOP",             NULL}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
+  {"BRPOPLPUSH",        NULL}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
+  {"CLIENT",            NULL}, // KILL ip:port / LIST / GETNAME / SETNAME name
+  {"DISCARD",           NULL}, // - Discard all commands issued after MULTI
+  {"EXEC",              NULL}, // - Execute all commands issued after MULTI
+  {"MONITOR",           NULL}, // - Listen for all requests received by the server in real time
+  {"MOVE",              NULL}, // key db - Move a key to another database
+  {"MSETNX",            NULL}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist
+  {"MULTI",             NULL}, // - Mark the start of a transaction block
+  {"PSUBSCRIBE",        NULL}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
+  {"PUBSUB",            NULL}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
+  {"PUBLISH",           NULL}, // channel message - Post a message to a channel
+  {"PUNSUBSCRIBE",      NULL}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
+  {"QUIT",              NULL}, // - Close the connection
+  {"SCAN",              NULL}, // cursor [MATCH pattern] [COUNT count] - Incrementally iterate the keys space
+  {"SELECT",            NULL}, // index - Change the selected database for the current connection
+  {"SHUTDOWN",          NULL}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
+  {"SLAVEOF",           NULL}, // host port - Make the server a slave of another instance, or promote it as master
+  {"SLOWLOG",           NULL}, // subcommand [argument] - Manages the Redis slow queries log
+  {"SUBSCRIBE",         NULL}, // channel [channel ...] - Listen for messages published to the given channels
+  {"SYNC",              NULL}, // - Internal command used for replication
+  {"UNSUBSCRIBE",       NULL}, // [channel [channel ...]] - Stop listening for messages posted to the given channels
+  {"UNWATCH",           NULL}, // - Forget about all watched keys
+  {"WATCH",             NULL}, // key [key ...] - Watch the given keys to determine execution of the MULTI/EXEC block
 
-  // commands that are hard to implement
-  {"BITOP",             redis_command_BITOP},                     // operation destkey key [key ...] - Perform bitwise operations between strings
-  {"DISCARD",           redis_command_DISCARD},                   // - Discard all commands issued after MULTI
-  {"EVAL",              redis_command_EVAL},                      // script numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
-  {"EVALSHA",           redis_command_EVALSHA},                   // sha1 numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
-  {"EXEC",              redis_command_EXEC},                      // - Execute all commands issued after MULTI
-  {"MULTI",             redis_command_MULTI},                     // - Mark the start of a transaction block
-  {"RENAME",            redis_command_RENAME},                    // key newkey - Rename a key
-  {"RENAMENX",          redis_command_RENAMENX},                  // key newkey - Rename a key, only if the new key does not exist
-  {"RPOPLPUSH",         redis_command_RPOPLPUSH},                 // source destination - Remove the last element in a list, append it to another list and return it
-  {"SCAN",              redis_command_SCAN},                      // cursor [MATCH pattern] [COUNT count] - Incrementally iterate the keys space
-  {"SCRIPT",            redis_command_SCRIPT},                    // KILL / EXISTS name / FLUSH / LOAD data - Kill the script currently in execution.
-  {"SDIFF",             redis_command_SDIFF},                     // key [key ...] - Subtract multiple sets
-  {"SDIFFSTORE",        redis_command_SDIFFSTORE},                // destination key [key ...] - Subtract multiple sets and store the resulting set in a key
-  {"SINTER",            redis_command_SINTER},                    // key [key ...] - Intersect multiple sets
-  {"SINTERSTORE",       redis_command_SINTERSTORE},               // destination key [key ...] - Intersect multiple sets and store the resulting set in a key
-  {"SLAVEOF",           redis_command_SLAVEOF},                   // host port - Make the server a slave of another instance, or promote it as master
-  {"SMOVE",             redis_command_SMOVE},                     // source destination member - Move a member from one set to another
-  {"SUNION",            redis_command_SUNION},                    // key [key ...] - Add multiple sets
-  {"SUNIONSTORE",       redis_command_SUNIONSTORE},               // destination key [key ...] - Add multiple sets and store the resulting set in a key
-  {"SYNC",              redis_command_SYNC},                      // - Internal command used for replication
-  {"ZINTERSTORE",       redis_command_ZINTERSTORE},               // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Intersect multiple sorted sets and store the resulting sorted set in a new key
-  {"ZUNIONSTORE",       redis_command_ZUNIONSTORE},               // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Add multiple sorted sets and store the resulting sorted set in a new key
+  // commands that are implemented
+  {"APPEND",            redis_command_forward_by_key1},             // key value - Append a value to a key
+  {"BGREWRITEAOF",      redis_command_all_collect_responses},       // - Asynchronously rewrite the append-only file
+  {"BGSAVE",            redis_command_all_collect_responses},       // - Asynchronously save db to disk
+  {"BITCOUNT",          redis_command_forward_by_key1},             // key [start] [end] - Count set bits in a string
+  {"BITOP",             redis_command_forward_by_keys_2},           // operation destkey key [key ...] - Perform bitwise operations between strings
+  {"CONFIG",            redis_command_all_collect_responses},       // GET parameter / REWRITE / SET param value / RESETSTAT
+  {"DBSIZE",            redis_command_DBSIZE},                      // - Return the number of keys in the selected database
+  {"DEBUG",             redis_command_DEBUG},                       // OBJECT key - Get debugging information about a key
+  {"DECR",              redis_command_forward_by_key1},             // key - Decrement the integer value of a key by one
+  {"DECRBY",            redis_command_forward_by_key1},             // key decrement - Decrement the integer value of a key by the given number
+  {"DEL",               redis_command_partition_by_keys_1_integer}, // key [key ...] - Delete a key
+  {"DUMP",              redis_command_forward_by_key1},             // key - Return a serialized version of the value stored at the specified key.
+  {"ECHO",              redis_command_ECHO},                        // message - Echo the given string
+  {"EVAL",              redis_command_EVAL},                        // script numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
+  {"EVALSHA",           redis_command_EVAL},                        // sha1 numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
+  {"EXISTS",            redis_command_forward_by_key1},             // key - Determine if a key exists
+  {"EXPIRE",            redis_command_forward_by_key1},             // key seconds - Set a keys time to live in seconds
+  {"EXPIREAT",          redis_command_forward_by_key1},             // key timestamp - Set the expiration for a key as a UNIX timestamp
+  {"FLUSHDB",           redis_command_all_collect_responses},       // - Remove all keys from the current database
+  {"FLUSHALL",          redis_command_all_collect_responses},       // - Remove all keys from all databases
+  {"GET",               redis_command_forward_by_key1},             // key - Get the value of a key
+  {"GETBIT",            redis_command_forward_by_key1},             // key offset - Returns the bit value at offset in the string value stored at key
+  {"GETRANGE",          redis_command_forward_by_key1},             // key start end - Get a substring of the string stored at a key
+  {"GETSET",            redis_command_forward_by_key1},             // key value - Set the string value of a key and return its old value
+  {"HDEL",              redis_command_forward_by_key1},             // key field [field ...] - Delete one or more hash fields
+  {"HEXISTS",           redis_command_forward_by_key1},             // key field - Determine if a hash field exists
+  {"HGET",              redis_command_forward_by_key1},             // key field - Get the value of a hash field
+  {"HGETALL",           redis_command_forward_by_key1},             // key - Get all the fields and values in a hash
+  {"HINCRBY",           redis_command_forward_by_key1},             // key field increment - Increment the integer value of a hash field by the given number
+  {"HINCRBYFLOAT",      redis_command_forward_by_key1},             // key field increment - Increment the float value of a hash field by the given amount
+  {"HKEYS",             redis_command_forward_by_key1},             // key - Get all the fields in a hash
+  {"HLEN",              redis_command_forward_by_key1},             // key - Get the number of fields in a hash
+  {"HMGET",             redis_command_forward_by_key1},             // key field [field ...] - Get the values of all the given hash fields
+  {"HMSET",             redis_command_forward_by_key1},             // key field value [field value ...] - Set multiple hash fields to multiple values
+  {"HSCAN",             redis_command_forward_by_key1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash fields and associated values
+  {"HSET",              redis_command_forward_by_key1},             // key field value - Set the string value of a hash field
+  {"HSETNX",            redis_command_forward_by_key1},             // key field value - Set the value of a hash field, only if the field does not exist
+  {"HVALS",             redis_command_forward_by_key1},             // key - Get all the values in a hash
+  {"INCR",              redis_command_forward_by_key1},             // key - Increment the integer value of a key by one
+  {"INCRBY",            redis_command_forward_by_key1},             // key increment - Increment the integer value of a key by the given amount
+  {"INCRBYFLOAT",       redis_command_forward_by_key1},             // key increment - Increment the float value of a key by the given amount
+  {"INFO",              redis_command_all_collect_responses},       // [section] - Get information and statistics about the server
+  {"KEYS",              redis_command_KEYS},                        // pattern - Find all keys matching the given pattern
+  {"LASTSAVE",          redis_command_all_collect_responses},       // - Get the UNIX time stamp of the last successful save to disk  
+  {"LINDEX",            redis_command_forward_by_key1},             // key index - Get an element from a list by its index
+  {"LINSERT",           redis_command_forward_by_key1},             // key BEFORE|AFTER pivot value - Insert an element before or after another element in a list
+  {"LLEN",              redis_command_forward_by_key1},             // key - Get the length of a list
+  {"LPOP",              redis_command_forward_by_key1},             // key - Remove and get the first element in a list
+  {"LPUSH",             redis_command_forward_by_key1},             // key value [value ...] - Prepend one or multiple values to a list
+  {"LPUSHX",            redis_command_forward_by_key1},             // key value - Prepend a value to a list, only if the list exists
+  {"LRANGE",            redis_command_forward_by_key1},             // key start stop - Get a range of elements from a list
+  {"LREM",              redis_command_forward_by_key1},             // key count value - Remove elements from a list
+  {"LSET",              redis_command_forward_by_key1},             // key index value - Set the value of an element in a list by its index
+  {"LTRIM",             redis_command_forward_by_key1},             // key start stop - Trim a list to the specified range
+  {"MGET",              redis_command_partition_by_keys_1_multi},   // key [key ...] - Get the values of all the given keys
+  {"MIGRATE",           redis_command_MIGRATE},                     // host port key destination-db timeout [COPY] [REPLACE] - Atomically transfer a key from a Redis instance to another one.
+  {"MSET",              redis_command_partition_by_keys_2_status},  // key value [key value ...] - Set multiple keys to multiple values
+  {"OBJECT",            redis_command_OBJECT},                      // subcommand [arguments [arguments ...]] - Inspect the internals of Redis objects
+  {"PERSIST",           redis_command_forward_by_key1},             // key - Remove the expiration from a key
+  {"PEXPIRE",           redis_command_forward_by_key1},             // key milliseconds - Set a keys time to live in milliseconds
+  {"PEXPIREAT",         redis_command_forward_by_key1},             // key milliseconds-timestamp - Set the expiration for a key as a UNIX timestamp specified in milliseconds
+  {"PING",              redis_command_PING},                        // - Ping the server
+  {"PSETEX",            redis_command_forward_by_key1},             // key milliseconds value - Set the value and expiration in milliseconds of a key
+  {"PTTL",              redis_command_forward_by_key1},             // key - Get the time to live for a key in milliseconds
+  {"RANDOMKEY",         redis_command_RANDOMKEY},                   // - Return a random key from the keyspace
+  {"RENAME",            redis_command_forward_by_keys_1},           // key newkey - Rename a key
+  {"RENAMENX",          redis_command_forward_by_keys_1},           // key newkey - Rename a key, only if the new key does not exist
+  {"RESTORE",           redis_command_forward_by_key1},             // key ttl serialized-value - Create a key using the provided serialized value, previously obtained using DUMP.
+  {"RPOP",              redis_command_forward_by_key1},             // key - Remove and get the last element in a list
+  {"RPOPLPUSH",         redis_command_forward_by_keys_1},           // source destination - Remove the last element in a list, append it to another list and return it
+  {"RPUSH",             redis_command_forward_by_key1},             // key value [value ...] - Append one or multiple values to a list
+  {"RPUSHX",            redis_command_forward_by_key1},             // key value - Append a value to a list, only if the list exists
+  {"SADD",              redis_command_forward_by_key1},             // key member [member ...] - Add one or more members to a set
+  {"SAVE",              redis_command_all_collect_responses},       // - Synchronously save the dataset to disk
+  {"SCARD",             redis_command_forward_by_key1},             // key - Get the number of members in a set
+  {"SCRIPT",            redis_command_SCRIPT},                      // KILL / EXISTS name / FLUSH / LOAD data - Kill the script currently in execution.
+  {"SDIFF",             redis_command_forward_by_keys_1},           // key [key ...] - Subtract multiple sets
+  {"SDIFFSTORE",        redis_command_forward_by_keys_1},           // destination key [key ...] - Subtract multiple sets and store the resulting set in a key
+  {"SET",               redis_command_forward_by_key1},             // key value [EX seconds] [PX milliseconds] [NX|XX] - Set the string value of a key
+  {"SETBIT",            redis_command_forward_by_key1},             // key offset value - Sets or clears the bit at offset in the string value stored at key
+  {"SETEX",             redis_command_forward_by_key1},             // key seconds value - Set the value and expiration of a key
+  {"SETNX",             redis_command_forward_by_key1},             // key value - Set the value of a key, only if the key does not exist
+  {"SETRANGE",          redis_command_forward_by_key1},             // key offset value - Overwrite part of a string at key starting at the specified offset
+  {"SINTER",            redis_command_forward_by_keys_1},           // key [key ...] - Intersect multiple sets
+  {"SINTERSTORE",       redis_command_forward_by_keys_1},           // destination key [key ...] - Intersect multiple sets and store the resulting set in a key
+  {"SISMEMBER",         redis_command_forward_by_key1},             // key member - Determine if a given value is a member of a set
+  {"SMEMBERS",          redis_command_forward_by_key1},             // key - Get all the members in a set
+  {"SMOVE",             redis_command_forward_by_keys_1_2},         // source destination member - Move a member from one set to another
+  {"SORT",              redis_command_forward_by_key1},             // key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination] - Sort the elements in a list, set or sorted set
+  {"SPOP",              redis_command_forward_by_key1},             // key - Remove and return a random member from a set
+  {"SRANDMEMBER",       redis_command_forward_by_key1},             // key [count] - Get one or multiple random members from a set
+  {"SREM",              redis_command_forward_by_key1},             // key member [member ...] - Remove one or more members from a set
+  {"SSCAN",             redis_command_forward_by_key1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate Set elements
+  {"STRLEN",            redis_command_forward_by_key1},             // key - Get the length of the value stored in a key
+  {"SUNION",            redis_command_forward_by_keys_1},           // key [key ...] - Add multiple sets
+  {"SUNIONSTORE",       redis_command_forward_by_keys_1},           // destination key [key ...] - Add multiple sets and store the resulting set in a key
+  {"TIME",              redis_command_all_collect_responses},       // - Return the current server time
+  {"TTL",               redis_command_forward_by_key1},             // key - Get the time to live for a key
+  {"TYPE",              redis_command_forward_by_key1},             // key - Determine the type stored at key
+  {"ZADD",              redis_command_forward_by_key1},             // key score member [score member ...] - Add one or more members to a sorted set, or update its score if it already exists
+  {"ZCARD",             redis_command_forward_by_key1},             // key - Get the number of members in a sorted set
+  {"ZCOUNT",            redis_command_forward_by_key1},             // key min max - Count the members in a sorted set with scores within the given values
+  {"ZINCRBY",           redis_command_forward_by_key1},             // key increment member - Increment the score of a member in a sorted set
+  {"ZINTERSTORE",       redis_command_ZACTIONSTORE},                // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Intersect multiple sorted sets and store the resulting sorted set in a new key
+  {"ZRANGE",            redis_command_forward_by_key1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index
+  {"ZRANGEBYSCORE",     redis_command_forward_by_key1},             // key min max [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score
+  {"ZRANK",             redis_command_forward_by_key1},             // key member - Determine the index of a member in a sorted set
+  {"ZREM",              redis_command_forward_by_key1},             // key member [member ...] - Remove one or more members from a sorted set
+  {"ZREMRANGEBYRANK",   redis_command_forward_by_key1},             // key start stop - Remove all members in a sorted set within the given indexes
+  {"ZREMRANGEBYSCORE",  redis_command_forward_by_key1},             // key min max - Remove all members in a sorted set within the given scores
+  {"ZREVRANGE",         redis_command_forward_by_key1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index, with scores ordered from high to low
+  {"ZREVRANGEBYSCORE",  redis_command_forward_by_key1},             // key max min [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score, with scores ordered from high to low
+  {"ZREVRANK",          redis_command_forward_by_key1},             // key member - Determine the index of a member in a sorted set, with scores ordered from high to low
+  {"ZSCAN",             redis_command_forward_by_key1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate sorted sets elements and associated scores
+  {"ZSCORE",            redis_command_forward_by_key1},             // key member - Get the score associated with the given member in a sorted set
+  {"ZUNIONSTORE",       redis_command_ZACTIONSTORE},                // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Add multiple sorted sets and store the resulting sorted set in a new key
 
-  // commands that are easy to implement
-  {"APPEND",            redis_command_forward_by_key1},           // key value - Append a value to a key
-  {"BGREWRITEAOF",      redis_command_all_collect_responses},     // - Asynchronously rewrite the append-only file
-  {"BGSAVE",            redis_command_all_collect_responses},     // - Asynchronously save db to disk
-  {"BITCOUNT",          redis_command_forward_by_key1},           // key [start] [end] - Count set bits in a string
-  {"DBSIZE",            redis_command_DBSIZE},                    // - Return the number of keys in the selected database
-  {"DEBUG",             redis_command_DEBUG},                     // OBJECT key - Get debugging information about a key
-  {"DECR",              redis_command_forward_by_key1},           // key - Decrement the integer value of a key by one
-  {"DECRBY",            redis_command_forward_by_key1},           // key decrement - Decrement the integer value of a key by the given number
-  {"DEL",               redis_command_forward_by_keys_1_integer}, // key [key ...] - Delete a key
-  {"DUMP",              redis_command_forward_by_key1},           // key - Return a serialized version of the value stored at the specified key.
-  {"ECHO",              redis_command_ECHO},                      // message - Echo the given string
-  {"EXISTS",            redis_command_forward_by_key1},           // key - Determine if a key exists
-  {"EXPIRE",            redis_command_forward_by_key1},           // key seconds - Set a keys time to live in seconds
-  {"EXPIREAT",          redis_command_forward_by_key1},           // key timestamp - Set the expiration for a key as a UNIX timestamp
-  {"FLUSHDB",           redis_command_all_collect_responses},     // - Remove all keys from the current database
-  {"FLUSHALL",          redis_command_all_collect_responses},     // - Remove all keys from all databases
-  {"GET",               redis_command_forward_by_key1},           // key - Get the value of a key
-  {"GETBIT",            redis_command_forward_by_key1},           // key offset - Returns the bit value at offset in the string value stored at key
-  {"GETRANGE",          redis_command_forward_by_key1},           // key start end - Get a substring of the string stored at a key
-  {"GETSET",            redis_command_forward_by_key1},           // key value - Set the string value of a key and return its old value
-  {"HDEL",              redis_command_forward_by_key1},           // key field [field ...] - Delete one or more hash fields
-  {"HEXISTS",           redis_command_forward_by_key1},           // key field - Determine if a hash field exists
-  {"HGET",              redis_command_forward_by_key1},           // key field - Get the value of a hash field
-  {"HGETALL",           redis_command_forward_by_key1},           // key - Get all the fields and values in a hash
-  {"HINCRBY",           redis_command_forward_by_key1},           // key field increment - Increment the integer value of a hash field by the given number
-  {"HINCRBYFLOAT",      redis_command_forward_by_key1},           // key field increment - Increment the float value of a hash field by the given amount
-  {"HKEYS",             redis_command_forward_by_key1},           // key - Get all the fields in a hash
-  {"HLEN",              redis_command_forward_by_key1},           // key - Get the number of fields in a hash
-  {"HMGET",             redis_command_forward_by_key1},           // key field [field ...] - Get the values of all the given hash fields
-  {"HMSET",             redis_command_forward_by_key1},           // key field value [field value ...] - Set multiple hash fields to multiple values
-  {"HSCAN",             redis_command_forward_by_key1},           // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash fields and associated values
-  {"HSET",              redis_command_forward_by_key1},           // key field value - Set the string value of a hash field
-  {"HSETNX",            redis_command_forward_by_key1},           // key field value - Set the value of a hash field, only if the field does not exist
-  {"HVALS",             redis_command_forward_by_key1},           // key - Get all the values in a hash
-  {"INCR",              redis_command_forward_by_key1},           // key - Increment the integer value of a key by one
-  {"INCRBY",            redis_command_forward_by_key1},           // key increment - Increment the integer value of a key by the given amount
-  {"INCRBYFLOAT",       redis_command_forward_by_key1},           // key increment - Increment the float value of a key by the given amount
-  {"INFO",              redis_command_all_collect_responses},     // [section] - Get information and statistics about the server
-  {"KEYS",              redis_command_KEYS},                      // pattern - Find all keys matching the given pattern
-  {"LASTSAVE",          redis_command_all_collect_responses},     // - Get the UNIX time stamp of the last successful save to disk  
-  {"LINDEX",            redis_command_forward_by_key1},           // key index - Get an element from a list by its index
-  {"LINSERT",           redis_command_forward_by_key1},           // key BEFORE|AFTER pivot value - Insert an element before or after another element in a list
-  {"LLEN",              redis_command_forward_by_key1},           // key - Get the length of a list
-  {"LPOP",              redis_command_forward_by_key1},           // key - Remove and get the first element in a list
-  {"LPUSH",             redis_command_forward_by_key1},           // key value [value ...] - Prepend one or multiple values to a list
-  {"LPUSHX",            redis_command_forward_by_key1},           // key value - Prepend a value to a list, only if the list exists
-  {"LRANGE",            redis_command_forward_by_key1},           // key start stop - Get a range of elements from a list
-  {"LREM",              redis_command_forward_by_key1},           // key count value - Remove elements from a list
-  {"LSET",              redis_command_forward_by_key1},           // key index value - Set the value of an element in a list by its index
-  {"LTRIM",             redis_command_forward_by_key1},           // key start stop - Trim a list to the specified range
-  {"MGET",              redis_command_forward_by_keys_1_multi},   // key [key ...] - Get the values of all the given keys
-  {"MIGRATE",           redis_command_MIGRATE},                   // host port key destination-db timeout [COPY] [REPLACE] - Atomically transfer a key from a Redis instance to another one.
-  {"MSET",              redis_command_forward_by_keys_2_status},  // key value [key value ...] - Set multiple keys to multiple values
-  {"OBJECT",            redis_command_OBJECT},                    // subcommand [arguments [arguments ...]] - Inspect the internals of Redis objects
-  {"PERSIST",           redis_command_forward_by_key1},           // key - Remove the expiration from a key
-  {"PEXPIRE",           redis_command_forward_by_key1},           // key milliseconds - Set a keys time to live in milliseconds
-  {"PEXPIREAT",         redis_command_forward_by_key1},           // key milliseconds-timestamp - Set the expiration for a key as a UNIX timestamp specified in milliseconds
-  {"PING",              redis_command_PING},                      // - Ping the server
-  {"PSETEX",            redis_command_forward_by_key1},           // key milliseconds value - Set the value and expiration in milliseconds of a key
-  {"PTTL",              redis_command_forward_by_key1},           // key - Get the time to live for a key in milliseconds
-  {"QUIT",              redis_command_QUIT},                      // - Close the connection
-  {"RANDOMKEY",         redis_command_RANDOMKEY},                 // - Return a random key from the keyspace
-  {"RESTORE",           redis_command_forward_by_key1},           // key ttl serialized-value - Create a key using the provided serialized value, previously obtained using DUMP.
-  {"RPOP",              redis_command_forward_by_key1},           // key - Remove and get the last element in a list
-  {"RPUSH",             redis_command_forward_by_key1},           // key value [value ...] - Append one or multiple values to a list
-  {"RPUSHX",            redis_command_forward_by_key1},           // key value - Append a value to a list, only if the list exists
-  {"SADD",              redis_command_forward_by_key1},           // key member [member ...] - Add one or more members to a set
-  {"SCARD",             redis_command_forward_by_key1},           // key - Get the number of members in a set
-  {"SET",               redis_command_forward_by_key1},           // key value [EX seconds] [PX milliseconds] [NX|XX] - Set the string value of a key
-  {"SETBIT",            redis_command_forward_by_key1},           // key offset value - Sets or clears the bit at offset in the string value stored at key
-  {"SETEX",             redis_command_forward_by_key1},           // key seconds value - Set the value and expiration of a key
-  {"SETNX",             redis_command_forward_by_key1},           // key value - Set the value of a key, only if the key does not exist
-  {"SETRANGE",          redis_command_forward_by_key1},           // key offset value - Overwrite part of a string at key starting at the specified offset
-  {"SISMEMBER",         redis_command_forward_by_key1},           // key member - Determine if a given value is a member of a set
-  {"SMEMBERS",          redis_command_forward_by_key1},           // key - Get all the members in a set
-  {"SORT",              redis_command_forward_by_key1},           // key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination] - Sort the elements in a list, set or sorted set
-  {"SPOP",              redis_command_forward_by_key1},           // key - Remove and return a random member from a set
-  {"SRANDMEMBER",       redis_command_forward_by_key1},           // key [count] - Get one or multiple random members from a set
-  {"SREM",              redis_command_forward_by_key1},           // key member [member ...] - Remove one or more members from a set
-  {"SSCAN",             redis_command_forward_by_key1},           // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate Set elements
-  {"STRLEN",            redis_command_forward_by_key1},           // key - Get the length of the value stored in a key
-  {"TIME",              redis_command_all_collect_responses},     // - Return the current server time
-  {"TTL",               redis_command_forward_by_key1},           // key - Get the time to live for a key
-  {"TYPE",              redis_command_forward_by_key1},           // key - Determine the type stored at key
-  {"ZADD",              redis_command_forward_by_key1},           // key score member [score member ...] - Add one or more members to a sorted set, or update its score if it already exists
-  {"ZCARD",             redis_command_forward_by_key1},           // key - Get the number of members in a sorted set
-  {"ZCOUNT",            redis_command_forward_by_key1},           // key min max - Count the members in a sorted set with scores within the given values
-  {"ZINCRBY",           redis_command_forward_by_key1},           // key increment member - Increment the score of a member in a sorted set
-  {"ZRANGE",            redis_command_forward_by_key1},           // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index
-  {"ZRANGEBYSCORE",     redis_command_forward_by_key1},           // key min max [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score
-  {"ZRANK",             redis_command_forward_by_key1},           // key member - Determine the index of a member in a sorted set
-  {"ZREM",              redis_command_forward_by_key1},           // key member [member ...] - Remove one or more members from a sorted set
-  {"ZREMRANGEBYRANK",   redis_command_forward_by_key1},           // key start stop - Remove all members in a sorted set within the given indexes
-  {"ZREMRANGEBYSCORE",  redis_command_forward_by_key1},           // key min max - Remove all members in a sorted set within the given scores
-  {"ZREVRANGE",         redis_command_forward_by_key1},           // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index, with scores ordered from high to low
-  {"ZREVRANGEBYSCORE",  redis_command_forward_by_key1},           // key max min [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score, with scores ordered from high to low
-  {"ZREVRANK",          redis_command_forward_by_key1},           // key member - Determine the index of a member in a sorted set, with scores ordered from high to low
-  {"ZSCAN",             redis_command_forward_by_key1},           // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate sorted sets elements and associated scores
-  {"ZSCORE",            redis_command_forward_by_key1},           // key member - Get the score associated with the given member in a sorted set
+  // commands that aren't part of the official protocol
+  {"BACKEND",           redis_command_BACKEND},    // key - Get the backend number that the given key hashes to
+  {"BACKENDNUM",        redis_command_BACKENDNUM}, // key - Get the backend number that the given key hashes to
+  {"BACKENDS",          redis_command_BACKENDS},   // - Get the list of all backend netlocs
 
   {NULL, NULL}, // end marker
 };
