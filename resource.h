@@ -20,6 +20,9 @@ struct resource {
 
 void resource_create(void* parent, void* r, void* free);
 void resource_delete(void* r, int num_explicit_refs);
+int64_t resource_count();
+int64_t resource_refcount();
+int64_t resource_size();
 
 void resource_add_ref(void* r, void* target);
 void resource_delete_ref(void* r, void* target);

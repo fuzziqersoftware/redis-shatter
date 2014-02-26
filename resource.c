@@ -42,12 +42,26 @@ static void resource_unlock(pthread_mutex_t* m) {
 // base resources (i.e. those whose only inbound reference is from a stack)
 //   have refcount=0, but are never autofreed since they have no inbound refs
 
+static int64_t total_num_resources = 0;
+static int64_t total_num_refs = 0;
+static int64_t total_resource_size = 0;
+static int resource_inited = 0;
 #ifdef DEBUG_RESOURCES
-pthread_mutex_t all_resources_lock;
-int total_num_resources = 0;
-int total_num_refs = 0;
-struct resource** all_resources = NULL;
+static pthread_mutex_t all_resources_lock;
+static struct resource** all_resources = NULL;
 #endif
+
+int64_t resource_count() {
+  return total_num_resources;
+}
+
+int64_t resource_refcount() {
+  return total_num_refs;
+}
+
+int64_t resource_size() {
+  return total_resource_size;
+}
 
 void resource_add_ref(void* _r, void* _target) {
 
@@ -75,17 +89,20 @@ void resource_add_ref(void* _r, void* _target) {
   r->num_outbound_refs++;
   target->num_inbound_refs++;
 
-#ifdef DEBUG_RESOURCES
-  if (all_resources == NULL)
+  if (!resource_inited) {
     resource_init_lock(&all_resources_lock);
+    resource_inited = 1;
+  }
   resource_lock(&all_resources_lock);
   total_num_refs++;
+
+#ifdef DEBUG_RESOURCES
   printf("[%016llX] (%d, %d) resource: added reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
       (int64_t)pthread_self(), total_num_resources, total_num_refs, r, r->annotation,
       r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
       target->num_inbound_refs, target->num_outbound_refs);
-  resource_unlock(&all_resources_lock);
 #endif
+  resource_unlock(&all_resources_lock);
 
   resource_unlock(&target->mutex);
   resource_unlock(&r->mutex);
@@ -115,17 +132,21 @@ void resource_delete_ref(void* _r, void* _target) {
   memcpy(&r->outbound_refs[x], &r->outbound_refs[x + 1],
       sizeof(struct resource*) * (r->num_outbound_refs - x));
 
-#ifdef DEBUG_RESOURCES
-  if (all_resources == NULL)
+  if (!resource_inited) {
     resource_init_lock(&all_resources_lock);
+    resource_inited = 1;
+  }
   resource_lock(&all_resources_lock);
   total_num_refs--;
+
+#ifdef DEBUG_RESOURCES
   printf("[%016llX] (%d, %d) resource: removed reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
       (int64_t)pthread_self(), total_num_resources, total_num_refs, r, r->annotation,
       r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
       target->num_inbound_refs, target->num_outbound_refs);
-  resource_unlock(&all_resources_lock);
 #endif
+
+  resource_unlock(&all_resources_lock);
 
   if (target->num_inbound_refs < 0)
     debug_abort_stacktrace();
@@ -159,21 +180,24 @@ void resource_create(void* _parent, void* _r, void* free_fn) {
   r->outbound_refs = NULL;
   r->free = (void (*)(void*))free_fn;
 
-#ifdef DEBUG_RESOURCES
-  r->annotation[0] = 0;
-
-  if (all_resources == NULL)
+  if (!resource_inited) {
     resource_init_lock(&all_resources_lock);
+    resource_inited = 1;
+  }
   resource_lock(&all_resources_lock);
   total_num_resources++;
-  printf("[%016llX] (%d, %d) resource: created %p\"%s\"(>%lld explicit)\n",
-      (int64_t)pthread_self(), total_num_resources, total_num_refs, r, r->annotation,
+
+#ifdef DEBUG_RESOURCES
+  printf("[%016llX] (%d, %d) resource: created %p(>%lld explicit)\n",
+      (int64_t)pthread_self(), total_num_resources, total_num_refs, r,
       r->num_inbound_refs);
+  r->annotation[0] = 0;
 
   all_resources = (struct resource**)realloc(all_resources, sizeof(struct resource*) * total_num_resources);
   all_resources[total_num_resources - 1] = r;
-  resource_unlock(&all_resources_lock);
 #endif
+
+  resource_unlock(&all_resources_lock);
 
   if (parent)
     resource_add_ref(parent, r);
@@ -190,11 +214,13 @@ void resource_delete(void* _r, int num_explicit_refs) {
     debug_abort_stacktrace();
   }
 
-#ifdef DEBUG_RESOURCES
-  if (all_resources == NULL)
+  if (!resource_inited) {
     resource_init_lock(&all_resources_lock);
+    resource_inited = 1;
+  }
   resource_lock(&all_resources_lock);
 
+#ifdef DEBUG_RESOURCES
   int x;
   for (x = 0; x < total_num_resources; x++)
     if (all_resources[x] == r)
@@ -204,15 +230,19 @@ void resource_delete(void* _r, int num_explicit_refs) {
         (int64_t)pthread_self(), r, r->annotation);
     debug_abort_stacktrace();
   }
+#endif
+
   total_num_resources--;
+
+#ifdef DEBUG_RESOURCES
   memcpy(&all_resources[x], &all_resources[x + 1], sizeof(struct resource*) * (total_num_resources - x));
   all_resources[total_num_resources] = NULL;
 
   printf("[%016llX] (%d, %d) resource: deleting %p\"%s\"(>%lld explicit)\n",
       (int64_t)pthread_self(), total_num_resources, total_num_refs, r, r->annotation,
       r->num_inbound_refs);
-  resource_unlock(&all_resources_lock);
 #endif
+  resource_unlock(&all_resources_lock);
 
   while (r->num_outbound_refs)
     resource_delete_ref(r, r->outbound_refs[r->num_outbound_refs - 1]);
