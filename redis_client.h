@@ -57,7 +57,7 @@ struct redis_client {
 
   void* ctx;
   struct bufferevent* bev;
-  struct redis_command_parser_state* parser;
+  struct redis_command_parser* parser;
 
   struct sockaddr_in local;
   struct sockaddr_in remote;

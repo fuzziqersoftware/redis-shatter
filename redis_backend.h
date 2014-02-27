@@ -19,7 +19,7 @@ struct redis_backend {
   int port;
 
   struct bufferevent* bev;
-  struct redis_response_parser_state* parser;
+  struct redis_response_parser* parser;
 
   struct sockaddr_in local;
   struct sockaddr_in remote;

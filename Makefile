@@ -4,7 +4,7 @@ CFLAGS=-g -Wall
 LDFLAGS=-levent
 EXECUTABLE=redis-shatter
 
-TESTS=resource_test ketama_test
+TESTS=resource_test ketama_test redis_protocol_test
 
 all: $(EXECUTABLE) test
 
@@ -13,6 +13,9 @@ $(EXECUTABLE): $(OBJECTS)
 
 test: $(TESTS)
 	./run_tests.sh
+
+redis_protocol_test: redis_protocol_test.o redis_protocol.o resource.o
+	g++ $(LDFLAGS) -o redis_protocol_test $^
 
 resource_test: resource_test.o resource.o
 	g++ $(LDFLAGS) -o resource_test $^

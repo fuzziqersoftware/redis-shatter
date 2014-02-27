@@ -68,7 +68,7 @@ int redis_responses_equal(struct redis_response* a, struct redis_response* b);
 ////////////////////////////////////////////////////////////////////////////////
 // command/response input
 
-struct redis_command_parser_state {
+struct redis_command_parser {
   struct resource res;
 
   int state;
@@ -80,13 +80,13 @@ struct redis_command_parser_state {
   int arg_in_progress_read_bytes;
 };
 
-struct redis_command_parser_state* redis_command_parser_create(
+struct redis_command_parser* redis_command_parser_create(
     void* resource_parent);
 struct redis_command* redis_command_parser_continue(void* resource_parent,
-    struct redis_command_parser_state* st, struct evbuffer* buffer);
+    struct redis_command_parser* st, struct evbuffer* buffer);
 
 
-struct redis_response_parser_state {
+struct redis_response_parser {
   struct resource res;
 
   int state;
@@ -95,14 +95,14 @@ struct redis_response_parser_state {
   struct redis_response* response_in_progress;
   int data_response_bytes_read;
 
-  struct redis_response_parser_state* multi_in_progress;
+  struct redis_response_parser* multi_in_progress;
   int multi_response_current_field;
 };
 
-struct redis_response_parser_state* redis_response_parser_create(
+struct redis_response_parser* redis_response_parser_create(
     void* resource_parent);
 struct redis_response* redis_response_parser_continue(void* resource_parent,
-    struct redis_response_parser_state* st, struct evbuffer* buffer);
+    struct redis_response_parser* st, struct evbuffer* buffer);
 
 
 ////////////////////////////////////////////////////////////////////////////////
