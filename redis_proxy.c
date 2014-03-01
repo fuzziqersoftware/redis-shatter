@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "network.h"
@@ -549,11 +550,14 @@ start_time:%d\n\
 uptime:%d\n\
 resource_count:%d\n\
 resource_refcount:%d\n\
+process_id:%d\n\
+process_num:%d\n\
+num_processes:%d\n\
 ", proxy->num_commands_received, proxy->num_commands_sent,
         proxy->num_responses_received, proxy->num_responses_sent,
         proxy->num_connections_received, proxy->num_clients, proxy->num_backends,
         proxy->start_time, (time(NULL) - proxy->start_time), resource_count(),
-        resource_refcount());
+        resource_refcount(), getpid(), proxy->process_num, proxy->num_processes);
     redis_proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
     return;
