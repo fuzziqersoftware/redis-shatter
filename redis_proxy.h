@@ -17,6 +17,8 @@ struct redis_proxy {
   int num_commands_sent;
   int num_responses_received;
   int num_responses_sent;
+  int num_connections_received;
+  time_t start_time;
 
   int num_backends;
   struct redis_backend** backends;
