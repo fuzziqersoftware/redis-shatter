@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 
   // if there's no listening socket from a parent process, open a new one
   if (listen_fd == -1) {
-    listen_fd = network_listen(NULL, port, 10);
+    listen_fd = network_listen(NULL, port, SOMAXCONN);
     if (listen_fd < 0) {
       printf("error: can\'t open server socket: %s\n",
           network_error_str(listen_fd));

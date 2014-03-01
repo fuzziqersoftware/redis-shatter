@@ -1,6 +1,6 @@
 CC=gcc
 OBJECTS=debug.o resource.o redis_client.o redis_protocol.o redis_backend.o main.o ketama.o network.o redis_proxy.o
-CFLAGS=-g -Wall
+CFLAGS=-g -Wall # -DDEBUG_RESOURCES # -DDEBUG_COMMAND_IO
 LDFLAGS=-levent
 EXECUTABLE=redis-shatter
 
@@ -14,13 +14,13 @@ $(EXECUTABLE): $(OBJECTS)
 test: $(TESTS)
 	./run_tests.sh
 
-redis_protocol_test: redis_protocol_test.o redis_protocol.o resource.o
+redis_protocol_test: redis_protocol_test.o redis_protocol.o resource.o debug.o
 	g++ $(LDFLAGS) -o redis_protocol_test $^
 
-resource_test: resource_test.o resource.o
+resource_test: resource_test.o resource.o debug.o
 	g++ $(LDFLAGS) -o resource_test $^
 
-ketama_test: ketama_test.o ketama.o resource.o
+ketama_test: ketama_test.o ketama.o resource.o debug.o
 	g++ $(LDFLAGS) -o ketama_test $^
 
 clean:

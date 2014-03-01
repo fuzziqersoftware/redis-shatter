@@ -113,15 +113,50 @@ int main(int argc, char* argv[]) {
     redis_write_response(buf, r);
     struct evbuffer_ptr pos = evbuffer_search(buf, resp_string, strlen(resp_string), NULL);
     test_assert(pos.pos == 0);
+    evbuffer_free(buf);
 
     resource_delete(parser, 1);
     check_counts_and_size(0, 0);
   }
+
+  {
+    printf("-- make sure response_printf behaves correctly\n");
+
+    struct redis_response* resp = redis_response_printf(NULL, RESPONSE_STATUS,
+        "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
+    const char* expected_string1 = "+This is response 4 of 10; here\'s a string: lol.";
+    struct evbuffer* buf = evbuffer_new();
+    redis_write_response(buf, resp);
+    test_assert(evbuffer_search(buf, expected_string1, strlen(expected_string1), NULL).pos == 0)
+    evbuffer_free(buf);
+    resource_delete(resp, 1);
+
+    resp = redis_response_printf(NULL, RESPONSE_ERROR,
+        "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
+    const char* expected_string2 = "-This is response 4 of 10; here\'s a string: lol.";
+    buf = evbuffer_new();
+    redis_write_response(buf, resp);
+    test_assert(evbuffer_search(buf, expected_string2, strlen(expected_string1), NULL).pos == 0)
+    evbuffer_free(buf);
+    resource_delete(resp, 1);
+
+    resp = redis_response_printf(NULL, RESPONSE_DATA,
+        "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
+    const char* expected_string3 = "$47\r\nThis is response 4 of 10; here\'s a string: lol.\r\n";
+    buf = evbuffer_new();
+    redis_write_response(buf, resp);
+    test_assert(evbuffer_search(buf, expected_string3, strlen(expected_string1), NULL).pos == 0)
+    evbuffer_free(buf);
+    resource_delete(resp, 1);
+
+    check_counts_and_size(0, 0);
+  }
+
 
   if (num_failures)
     printf("%d failures during test run\n", num_failures);
   else
     printf("all tests passed\n");
 
-  return 0;
+  return num_failures;
 }

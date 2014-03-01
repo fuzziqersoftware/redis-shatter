@@ -87,5 +87,5 @@ int main(int argc, char* argv[]) {
   else
     printf("all tests passed\n");
 
-  return 0;
+  return num_failures;
 }

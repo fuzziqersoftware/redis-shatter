@@ -36,11 +36,24 @@ struct redis_command* redis_command_create(void* resource_parent, int num_args) 
   return cmd;
 }
 
-void redis_command_print(struct redis_command* cmd) {
+void redis_command_print(struct redis_command* cmd, int indent) {
+
+  if (indent < 0)
+    indent = -indent;
+  else
+    print_indent(indent);
+
+  if (!cmd) {
+    printf("redis_command@NULL");
+    return;
+  }
+
   int x, y;
-  printf("Command@%p[", cmd);
+  printf("redis_command@%p[args=[", cmd);
   for (x = 0; x < cmd->num_args; x++) {
-    printf("Arg[%x, %x, %p, ", cmd->args[x].size, cmd->args[x].annotation, cmd->args[x].data);
+    printf("\n");
+    print_indent(indent + 1);
+    printf("redis_argument[size=%x, annotation=%x, data=%p, data_preview=", cmd->args[x].size, cmd->args[x].annotation, cmd->args[x].data);
     for (y = 0; y < cmd->args[x].size; y++) {
       int ch = *((char*)cmd->args[x].data + y);
       if (ch < 0x20 || ch > 0x7F)
@@ -48,9 +61,9 @@ void redis_command_print(struct redis_command* cmd) {
       else
         printf("%c", ch);
     }
-    printf("], ");
+    printf("],");
   }
-  printf("]\n");
+  printf("]]");
 }
 
 struct redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size) {
@@ -85,6 +98,7 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
       response = (struct redis_response*)malloc(sizeof(struct redis_response) + ((size < 0 ? 0 : size) * sizeof(struct redis_command*)));
       if (!response)
         return NULL;
+      memset(response->multi_value.fields, response->multi_value.num_fields * sizeof(struct redis_response*), 0);
       response->response_type = type;
       response->multi_value.num_fields = size;
       break; }
@@ -149,32 +163,37 @@ int redis_responses_equal(struct redis_response* a, struct redis_response* b) {
   }
 }
 
-void redis_response_print(struct redis_response* resp) {
+void redis_response_print(struct redis_response* resp, int indent) {
+
+  if (indent < 0)
+    indent = -indent;
+  else
+    print_indent(indent);
 
   if (!resp) {
-    printf("NULL\n");
+    printf("redis_response@NULL");
     return;
   }
 
   int x;
   switch (resp->response_type) {
     case RESPONSE_STATUS:
-      printf("StatusResponse@%p[%s]\n", resp, resp->status_str);
+      printf("redis_response@%p[type=STATUS, status_str=%s]", resp, resp->status_str);
       break;
 
     case RESPONSE_ERROR:
-      printf("ErrorResponse@%p[%s]\n", resp, resp->status_str);
+      printf("redis_response@%p[type=ERROR, status_str=%s]", resp, resp->status_str);
       break;
 
     case RESPONSE_INTEGER:
-      printf("IntegerResponse@%p[%lld]\n", resp, resp->int_value);
+      printf("redis_response@%p[type=INTEGER, int_value=%lld]", resp, resp->int_value);
       break;
 
     case RESPONSE_DATA:
       if (resp->data_value.size < 0)
-        printf("NullDataResponse@%p\n", resp);
+        printf("redis_response@%p[type=DATA, null]\n", resp);
       else {
-        printf("DataResponse@%p[%lld, ", resp, resp->data_value.size);
+        printf("redis_response@%p[type=DATA, size=%lld, data_preview=", resp, resp->data_value.size);
         for (x = 0; x < resp->data_value.size; x++) {
           int ch = *((char*)resp->data_value.data + x);
           if (ch < 0x20 || ch > 0x7F)
@@ -182,19 +201,21 @@ void redis_response_print(struct redis_response* resp) {
           else
             printf("%c", ch);
         }
-        printf("]\n");
+        printf("]");
       }
       break;
 
     case RESPONSE_MULTI:
       if (resp->data_value.size < 0)
-        printf("NullMultiResponse@%p\n", resp);
+        printf("redis_response@%p[type=MULTI, null]", resp);
       else {
-        printf("MultiResponse@%p[%lld, \n", resp, resp->multi_value.num_fields);
+        printf("redis_response@%p[type=MULTI, num_fields=%lld, fields=[\n", resp, resp->multi_value.num_fields);
         for (x = 0; x < resp->multi_value.num_fields; x++) {
-          redis_response_print(resp->multi_value.fields[x]);
+          redis_response_print(resp->multi_value.fields[x], indent + 1);
+          printf(",\n");
         }
-        printf("]\n");
+        print_indent(indent);
+        printf("]");
       }
       break;
   }
@@ -209,20 +230,20 @@ void redis_response_print(struct redis_response* resp) {
 #define CMDSTATE_READ_ARG_DATA                2
 #define CMDSTATE_READ_NEWLINE_AFTER_ARG_DATA  3
 
-struct redis_command_parser_state* redis_command_parser_create(
+struct redis_command_parser* redis_command_parser_create(
     void* resource_parent) {
 
-  struct redis_command_parser_state* st = (struct redis_command_parser_state*)
-      calloc(1, sizeof(struct redis_command_parser_state));
+  struct redis_command_parser* st = (struct redis_command_parser*)
+      calloc(1, sizeof(struct redis_command_parser));
   if (!st)
     return NULL;
   resource_create(resource_parent, st, free);
-  resource_annotate(st, "redis_command_parser_state[]");
+  resource_annotate(st, "redis_command_parser[]");
   return st;
 }
 
 struct redis_command* redis_command_parser_continue(void* resource_parent,
-    struct redis_command_parser_state* st, struct evbuffer* buf) {
+    struct redis_command_parser* st, struct evbuffer* buf) {
 
   char *input_line;
   size_t len;
@@ -319,6 +340,22 @@ struct redis_command* redis_command_parser_continue(void* resource_parent,
   return cmd_to_return; // no complete command was available
 }
 
+void redis_command_parser_print(struct redis_command_parser* p, int indent) {
+  if (indent < 0)
+    indent = -indent;
+  else
+    print_indent(indent);
+
+  if (!p) {
+    printf("redis_command_parser@NULL");
+    return;
+  }
+
+  printf("redis_command_parser@%p[state=%d, error=%d, num_command_args=%d, arg_in_progress=%d, arg_in_progress_read_bytes=%d, command_in_progress=", p, p->state, p->error, p->num_command_args, p->arg_in_progress, p->arg_in_progress_read_bytes);
+  redis_command_print(p->command_in_progress, -(indent + 1));
+  printf("]");
+}
+
 
 
 #define RSPSTATE_INITIAL                            0
@@ -327,27 +364,28 @@ struct redis_command* redis_command_parser_continue(void* resource_parent,
 #define RSPSTATE_READ_NEWLINE_AFTER_DATA_RESPONSE   3
 
 
-struct redis_response_parser_state* redis_response_parser_create(
+struct redis_response_parser* redis_response_parser_create(
     void* resource_parent) {
 
-  struct redis_response_parser_state* st = (struct redis_response_parser_state*)
-      calloc(1, sizeof(struct redis_response_parser_state));
+  struct redis_response_parser* st = (struct redis_response_parser*)
+      calloc(1, sizeof(struct redis_response_parser));
   if (!st)
     return NULL;
   resource_create(resource_parent, st, free);
-  resource_annotate(st, "redis_response_parser_state[]");
+  resource_annotate(st, "redis_response_parser[]");
   return st;
 }
 
 struct redis_response* redis_response_parser_continue(void* resource_parent,
-    struct redis_response_parser_state* st, struct evbuffer* buf) {
+    struct redis_response_parser* st, struct evbuffer* buf) {
 
-  char *input_line;
+  char* input_line;
   size_t len;
   int can_continue = 1;
   struct redis_response* resp_to_return = NULL;
   while (!st->error && can_continue && !resp_to_return) {
 
+    input_line = NULL;
     switch (st->state) {
 
       case RSPSTATE_INITIAL:
@@ -390,6 +428,8 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
             if (num_fields <= 0)
               resp_to_return = st->response_in_progress;
             else {
+              if (st->multi_in_progress)
+                resource_delete_ref(st, st->multi_in_progress);
               st->multi_in_progress = redis_response_parser_create(st);
               st->multi_response_current_field = 0;
               st->state = RSPSTATE_MULTI_RECURSIVE;
@@ -403,8 +443,13 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
 
       case RSPSTATE_MULTI_RECURSIVE: {
         struct redis_response* field = redis_response_parser_continue(
-            resource_parent, st->multi_in_progress, buf);
-        if (field) {
+            st->response_in_progress, st->multi_in_progress, buf);
+        if (!field) {
+          if (st->multi_in_progress->error)
+            st->error = st->multi_in_progress->error;
+          can_continue = 0;
+
+        } else {
           st->response_in_progress->multi_value.fields[st->multi_response_current_field] = field;
           st->multi_response_current_field++;
           if (st->multi_response_current_field ==
@@ -417,19 +462,24 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
 
       case RSPSTATE_READ_DATA_RESPONSE: {
         size_t data_to_read = evbuffer_get_length(buf);
-        size_t response_bytes_remaining = st->response_in_progress->data_value.size - st->data_response_bytes_read;
-        if (data_to_read > response_bytes_remaining)
-          data_to_read = response_bytes_remaining;
+        if (!data_to_read)
+          can_continue = 0;
 
-        int res = evbuffer_remove(buf, st->response_in_progress->data_value.data + st->data_response_bytes_read, data_to_read);
-        if (res == -1)
-          st->error = ERROR_BUFFER_COPY;
-        else
-          st->data_response_bytes_read += res;
+        else {
+          size_t response_bytes_remaining = st->response_in_progress->data_value.size - st->data_response_bytes_read;
+          if (data_to_read > response_bytes_remaining)
+            data_to_read = response_bytes_remaining;
 
-        if (st->data_response_bytes_read ==
-            st->response_in_progress->data_value.size)
-          st->state = RSPSTATE_READ_NEWLINE_AFTER_DATA_RESPONSE;
+          int res = evbuffer_remove(buf, st->response_in_progress->data_value.data + st->data_response_bytes_read, data_to_read);
+          if (res == -1)
+            st->error = ERROR_BUFFER_COPY;
+          else
+            st->data_response_bytes_read += res;
+
+          if (st->data_response_bytes_read ==
+              st->response_in_progress->data_value.size)
+            st->state = RSPSTATE_READ_NEWLINE_AFTER_DATA_RESPONSE;
+        }
         break; }
 
       case RSPSTATE_READ_NEWLINE_AFTER_DATA_RESPONSE:
@@ -453,11 +503,38 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
   return resp_to_return;
 }
 
+void redis_response_parser_print(struct redis_response_parser* p, int indent) {
+  if (indent < 0)
+    indent = -indent;
+  else
+    print_indent(indent);
+
+  if (!p) {
+    printf("redis_response_parser@NULL");
+    return;
+  }
+
+  printf("redis_response_parser@%p[state=%d, error=%d, data_response_bytes_read=%d, response_in_progress=", p, p->state, p->error, p->data_response_bytes_read);
+  redis_response_print(p->response_in_progress, -(indent + 1));
+  printf(", multi_response_current_field=%d, multi_in_progress=", p->multi_response_current_field);
+  redis_response_parser_print(p->multi_in_progress, -(indent + 1));
+  printf("]");
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // command/response output
 
 void redis_write_command(struct evbuffer* buf, struct redis_command* cmd) {
+  if (!buf)
+    return;
+
+#ifdef DEBUG_COMMAND_IO
+  printf("OUTPUT COMMAND TO BACKEND:");
+  redis_command_print(cmd, 0);
+  printf("\n");
+#endif
+
   evbuffer_add_printf(buf, "*%d\r\n", cmd->num_args);
 
   int x;
@@ -468,15 +545,47 @@ void redis_write_command(struct evbuffer* buf, struct redis_command* cmd) {
   }
 }
 
+#ifdef DEBUG_COMMAND_IO
+static int _recursion_in_write_response = 0;
+#endif
+
 void redis_write_string_response(struct evbuffer* buf, const char* string, char sentinel) {
+  if (!buf)
+    return;
+
+#ifdef DEBUG_COMMAND_IO
+  if (_recursion_in_write_response == 0)
+    printf("OUTPUT RESPONSE TO CLIENT: STRING[%c%s]\n", sentinel, string);
+#endif
+
   evbuffer_add_printf(buf, "%c%s\r\n", sentinel, string);
 }
 
 void redis_write_int_response(struct evbuffer* buf, int64_t value, char sentinel) {
+  if (!buf)
+    return;
+
+#ifdef DEBUG_COMMAND_IO
+  if (_recursion_in_write_response == 0)
+    printf("OUTPUT RESPONSE TO CLIENT: INTEGER[%c%lld]\n", sentinel, value);
+#endif
+
   evbuffer_add_printf(buf, "%c%lld\r\n", sentinel, value);
 }
 
 void redis_write_response(struct evbuffer* buf, struct redis_response* resp) {
+
+  if (!buf)
+    return;
+
+#ifdef DEBUG_COMMAND_IO
+  if (_recursion_in_write_response == 0) {
+    printf("OUTPUT RESPONSE TO CLIENT:");
+    redis_response_print(resp, 0);
+    printf("\n");
+  }
+  _recursion_in_write_response++;
+#endif
 
   int64_t x;
   switch (resp->response_type) {
@@ -506,4 +615,7 @@ void redis_write_response(struct evbuffer* buf, struct redis_response* resp) {
           redis_write_response(buf, resp->multi_value.fields[x]);
       break;
   }
+#ifdef DEBUG_COMMAND_IO
+  _recursion_in_write_response--;
+#endif
 }

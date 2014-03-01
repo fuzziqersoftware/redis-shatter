@@ -15,11 +15,16 @@ struct redis_backend {
 
   void* ctx;
 
+  char name[0x40];
+
   char* host;
   int port;
 
   struct bufferevent* bev;
   struct redis_response_parser* parser;
+
+  int num_responses_received;
+  int num_commands_sent;
 
   struct sockaddr_in local;
   struct sockaddr_in remote;
@@ -30,6 +35,7 @@ struct redis_backend {
 
 struct redis_backend* redis_backend_create(void* resource_parent,
     const char* host, int port);
+void redis_backend_print(struct redis_backend* b, int indent);
 
 struct evbuffer* redis_backend_get_output_buffer(struct redis_backend* c);
 

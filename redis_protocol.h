@@ -56,11 +56,11 @@ struct redis_response {
 };
 
 struct redis_command* redis_command_create(void* resource_parent, int num_args);
-void redis_command_print(struct redis_command*);
+void redis_command_print(struct redis_command*, int indent);
 
 struct redis_response* redis_response_create(void* resource_parent, uint8_t type, int64_t size);
 struct redis_response* redis_response_printf(void* resource_parent, uint8_t type, const char* fmt, ...);
-void redis_response_print(struct redis_response*);
+void redis_response_print(struct redis_response*, int indent);
 
 int redis_responses_equal(struct redis_response* a, struct redis_response* b);
 
@@ -84,6 +84,7 @@ struct redis_command_parser* redis_command_parser_create(
     void* resource_parent);
 struct redis_command* redis_command_parser_continue(void* resource_parent,
     struct redis_command_parser* st, struct evbuffer* buffer);
+void redis_command_parser_print(struct redis_command_parser* p, int indent);
 
 
 struct redis_response_parser {
@@ -103,6 +104,7 @@ struct redis_response_parser* redis_response_parser_create(
     void* resource_parent);
 struct redis_response* redis_response_parser_continue(void* resource_parent,
     struct redis_response_parser* st, struct evbuffer* buffer);
+void redis_response_parser_print(struct redis_response_parser* p, int indent);
 
 
 ////////////////////////////////////////////////////////////////////////////////

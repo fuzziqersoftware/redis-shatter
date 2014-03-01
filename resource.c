@@ -63,6 +63,13 @@ int64_t resource_size() {
   return total_resource_size;
 }
 
+static inline void resource_global_init() {
+  if (!resource_inited) {
+    resource_init_lock(&all_resources_lock);
+    resource_inited = 1;
+  }
+}
+
 void resource_add_ref(void* _r, void* _target) {
 
   struct resource* r = (struct resource*)_r;
@@ -89,10 +96,7 @@ void resource_add_ref(void* _r, void* _target) {
   r->num_outbound_refs++;
   target->num_inbound_refs++;
 
-  if (!resource_inited) {
-    resource_init_lock(&all_resources_lock);
-    resource_inited = 1;
-  }
+  resource_global_init();
   resource_lock(&all_resources_lock);
   total_num_refs++;
 
@@ -132,10 +136,7 @@ void resource_delete_ref(void* _r, void* _target) {
   memcpy(&r->outbound_refs[x], &r->outbound_refs[x + 1],
       sizeof(struct resource*) * (r->num_outbound_refs - x));
 
-  if (!resource_inited) {
-    resource_init_lock(&all_resources_lock);
-    resource_inited = 1;
-  }
+  resource_global_init();
   resource_lock(&all_resources_lock);
   total_num_refs--;
 
@@ -180,10 +181,7 @@ void resource_create(void* _parent, void* _r, void* free_fn) {
   r->outbound_refs = NULL;
   r->free = (void (*)(void*))free_fn;
 
-  if (!resource_inited) {
-    resource_init_lock(&all_resources_lock);
-    resource_inited = 1;
-  }
+  resource_global_init();
   resource_lock(&all_resources_lock);
   total_num_resources++;
 
@@ -214,10 +212,7 @@ void resource_delete(void* _r, int num_explicit_refs) {
     debug_abort_stacktrace();
   }
 
-  if (!resource_inited) {
-    resource_init_lock(&all_resources_lock);
-    resource_inited = 1;
-  }
+  resource_global_init();
   resource_lock(&all_resources_lock);
 
 #ifdef DEBUG_RESOURCES
@@ -251,12 +246,6 @@ void resource_delete(void* _r, int num_explicit_refs) {
     free(r->outbound_refs);
   if (r->free)
     r->free(r);
-}
-
-static void print_indent(int indent) {
-  int x;
-  for (x = 0; x < indent; x++)
-    printf("  ");
 }
 
 static void print_resource_tree_again(struct resource* root,

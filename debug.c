@@ -43,3 +43,8 @@ void print_data(const void* ds, unsigned long long data_size) {
   }
   printf("\n");
 }
+
+void print_indent(int level) {
+  for (; level > 0; level--)
+    printf("  ");
+}
