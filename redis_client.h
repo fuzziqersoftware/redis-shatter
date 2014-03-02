@@ -33,23 +33,21 @@ struct redis_client_expected_response {
   int num_responses_expected;
   struct redis_response* error_response;
 
-  union {
-    struct redis_response* response_to_forward;
-    int64_t int_sum;
-    struct {
-      int num_responses;
-      int expected_response_type;
-      struct redis_response* responses[0];
-    } collect_multi;
-    struct {
-    	int num_keys;
-    	int args_per_key;
-      int* server_to_key_count;
-      uint8_t* key_to_server;
-      struct redis_command** index_to_command;
-      struct redis_response* response_in_progress;
-    } collect_key;
-  };
+  struct redis_response* response_to_forward;
+  int64_t int_sum;
+  struct {
+    int num_responses;
+    int expected_response_type;
+    struct redis_response* responses[0];
+  } collect_multi;
+  struct {
+  	int num_keys;
+  	int args_per_key;
+    int* server_to_key_count;
+    uint8_t* key_to_server;
+    struct redis_command** index_to_command;
+    struct redis_response* response_in_progress;
+  } collect_key;
 };
 
 struct redis_client {
