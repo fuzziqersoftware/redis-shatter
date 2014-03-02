@@ -609,9 +609,9 @@ void redis_command_partition_by_keys(struct redis_proxy* proxy,
 
   e->collect_key.args_per_key = args_per_key;
   e->collect_key.num_keys = (cmd->num_args - 1) / e->collect_key.args_per_key;
-  e->collect_key.server_to_key_count = (int*)resource_calloc_raw(e, sizeof(int) * proxy->num_backends);
-  e->collect_key.key_to_server = (uint8_t*)resource_calloc_raw(e, sizeof(uint8_t) * e->collect_key.num_keys);
-  e->collect_key.index_to_command = (struct redis_command**)resource_calloc_raw(e, sizeof(struct redis_command*) * proxy->num_backends);
+  e->collect_key.server_to_key_count = (int*)resource_calloc_raw(e, sizeof(int) * proxy->num_backends, free);
+  e->collect_key.key_to_server = (uint8_t*)resource_calloc_raw(e, sizeof(uint8_t) * e->collect_key.num_keys, free);
+  e->collect_key.index_to_command = (struct redis_command**)resource_calloc_raw(e, sizeof(struct redis_command*) * proxy->num_backends, free);
   if (!e->collect_key.server_to_key_count || !e->collect_key.key_to_server || !e->collect_key.index_to_command) {
     e->error_response = redis_response_printf(e, RESPONSE_ERROR, "PROXYERROR can\'t allocate memory");
     return;

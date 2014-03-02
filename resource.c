@@ -265,32 +265,32 @@ void print_resource_tree(void* root) {
   print_resource_tree_again((struct resource*)root, 0);
 }
 
-struct resource* resource_malloc(void* parent, int size) {
+struct resource* resource_malloc(void* parent, int size, void* free_fn) {
   size += sizeof(struct resource);
   struct resource* r = (struct resource*)malloc(size);
   if (!r)
     return NULL;
-  resource_create(parent, r, free);
+  resource_create(parent, r, free_fn);
   return r;
 }
 
-struct resource* resource_calloc(void* parent, int size) {
-  struct resource* r = resource_malloc(parent, size);
+struct resource* resource_calloc(void* parent, int size, void* free_fn) {
+  struct resource* r = resource_malloc(parent, size, free_fn);
   if (r)
     memset(&r->data, 0, size);
   return r;
 }
 
-void* resource_malloc_raw(void* parent, int size) {
-  struct resource* r = (struct resource*)resource_malloc(parent, size);
+void* resource_malloc_raw(void* parent, int size, void* free_fn) {
+  struct resource* r = resource_malloc(parent, size, free_fn);
   if (!r)
     return NULL;
   resource_annotate(r, "resource_malloc_raw(%d)", size);
   return &r->data[0];
 }
 
-void* resource_calloc_raw(void* parent, int size) {
-  struct resource* r = resource_calloc(parent, size);
+void* resource_calloc_raw(void* parent, int size, void* free_fn) {
+  struct resource* r = resource_calloc(parent, size, free_fn);
   if (!r)
     return NULL;
   resource_annotate(r, "resource_calloc_raw(%d)", size);

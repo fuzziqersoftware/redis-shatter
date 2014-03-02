@@ -67,7 +67,8 @@ static struct redis_client_expected_response* redis_client_expected_response_cre
     size_needed += (size * sizeof(struct redis_response*));
 
   struct redis_client_expected_response* e =
-      (struct redis_client_expected_response*)resource_calloc(resource_parent, size_needed);
+      (struct redis_client_expected_response*)resource_calloc(resource_parent,
+          size_needed, free);
   if (!e)
     return NULL;
   resource_annotate(e, "redis_client_expected_response[%d, %p, %d]", wait_type, cmd, size);

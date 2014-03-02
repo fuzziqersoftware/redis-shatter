@@ -18,7 +18,7 @@ struct resource {
   uint8_t data[0];
 };
 
-void resource_create(void* parent, void* r, void* free);
+void resource_create(void* parent, void* r, void* free_fn);
 void resource_delete(void* r, int num_explicit_refs);
 int64_t resource_count();
 int64_t resource_refcount();
@@ -30,10 +30,10 @@ void resource_delete_explicit_ref(void* r);
 
 void print_resource_tree(void* root);
 
-struct resource* resource_malloc(void* parent, int size);
-struct resource* resource_calloc(void* parent, int size);
-void* resource_malloc_raw(void* parent, int size);
-void* resource_calloc_raw(void* parent, int size);
+struct resource* resource_malloc(void* parent, int size, void* free_fn);
+struct resource* resource_calloc(void* parent, int size, void* free_fn);
+void* resource_malloc_raw(void* parent, int size, void* free_fn);
+void* resource_calloc_raw(void* parent, int size, void* free_fn);
 
 #define resource_create_var(local_res, type, name, size) \
   struct resource* name##_resource = resource_calloc(local_res, size); \
