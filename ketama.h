@@ -21,10 +21,10 @@ struct ketama_continuum {
 };
 
 struct ketama_continuum* ketama_continuum_create(void* resource_parent,
-		int num_hosts, const char** hosts);
-uint8_t ketama_server_for_key(struct ketama_continuum* c, void* key,
-		int64_t size);
-const char* ketama_hostname_for_point(struct ketama_continuum* c,
-		int host_index);
+    int num_hosts, const char** hosts);
+uint8_t ketama_server_for_key(const struct ketama_continuum* c, const void* key,
+    int64_t size);
+const char* ketama_hostname_for_point(const struct ketama_continuum* c,
+    int host_index);
 
 #endif // __KETAMA_H

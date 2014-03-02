@@ -82,6 +82,23 @@ int main(int argc, char* argv[]) {
     resource_delete(c2, 1);
   }
 
+  {
+    printf("-- check that host order doesn't matter\n");
+    const char* hosts1[4] = {"host1:80", "host2:80", "host3:80", "host4:80"};
+    const char* hosts2[4] = {"host4:80", "host3:80", "host2:80", "host1:80"};
+    struct ketama_continuum* c1 = ketama_continuum_create(NULL, 4, hosts1);
+    struct ketama_continuum* c2 = ketama_continuum_create(NULL, 4, hosts2);
+    test_assert(c1->num_hosts == 4);
+    test_assert(c2->num_hosts == 4);
+    for (x = 0; x < 0x10000; x++) {
+      const char* host1 = ketama_hostname_for_point(c1, c1->points[x]);
+      const char* host2 = ketama_hostname_for_point(c2, c2->points[x]);
+      test_assert(!strcmp(host1, host2));
+    }
+    resource_delete(c1, 1);
+    resource_delete(c2, 1);
+  }
+
   if (num_failures)
     printf("%d failures during test run\n", num_failures);
   else

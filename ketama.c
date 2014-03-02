@@ -30,7 +30,7 @@ uint64_t fnv1a_64_start(const void* data, uint64_t size) {
 
 
 
-#define POINTS_PER_HOST 160 // must be divisible by 4
+#define POINTS_PER_HOST 256 // must be divisible by 4
 
 static uint16_t ketama_server_hash(void* key, int64_t size, uint16_t pt) {
   return fnv1a_64_continue(key, size, fnv1a_64_start(&pt, sizeof(uint16_t)));
@@ -57,12 +57,29 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
   memset(c->points, 0xFF, 65536);
 
   char* host_ptr = (char*)(&c->hosts[c->num_hosts]);
+  struct resource* hosts_used = resource_calloc(c,
+      sizeof(uint8_t) * c->num_hosts, free);
   for (x = 0; x < c->num_hosts; x++) {
-    strcpy(host_ptr, hosts[x]);
-    c->hosts[x] = host_ptr;
+
+    // find the lexicographically-earliest host and use it
+    int min_host = -1;
+    for (y = 0; y < c->num_hosts; y++) {
+      if (hosts_used->data[y])
+        continue;
+      if (min_host == -1)
+        min_host = y;
+      else {
+        if (strcmp(hosts[y], hosts[min_host]) < 0)
+          min_host = y;
+      }
+    }
+    hosts_used->data[min_host] = 1;
+
+    strcpy(host_ptr, hosts[min_host]);
+    c->hosts[min_host] = host_ptr;
 
     for (y = 0; y < POINTS_PER_HOST; y++)
-      c->points[ketama_server_hash(host_ptr, strlen(host_ptr), y)] = x;
+      c->points[ketama_server_hash(host_ptr, strlen(host_ptr), y)] = min_host;
 
     host_ptr += (strlen(host_ptr) + 1);
   }
