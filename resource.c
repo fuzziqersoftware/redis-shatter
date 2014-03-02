@@ -281,6 +281,14 @@ struct resource* resource_calloc(void* parent, int size, void* free_fn) {
   return r;
 }
 
+struct resource* resource_strdup(void* parent, const char* s, void* free_fn) {
+  int len = strlen(s);
+  struct resource* r = resource_malloc(parent, len + 1, free_fn);
+  if (r)
+    strcpy((char*)&r->data, s);
+  return r;
+}
+
 void* resource_malloc_raw(void* parent, int size, void* free_fn) {
   struct resource* r = resource_malloc(parent, size, free_fn);
   if (!r)
@@ -295,4 +303,12 @@ void* resource_calloc_raw(void* parent, int size, void* free_fn) {
     return NULL;
   resource_annotate(r, "resource_calloc_raw(%d)", size);
   return &r->data[0];
+}
+
+char* resource_strdup_raw(void* parent, const char* s, void* free_fn) {
+  struct resource* r = resource_strdup(parent, s, free_fn);
+  if (!r)
+    return NULL;
+  resource_annotate(r, "resource_strdup");
+  return (char*)&r->data[0];
 }

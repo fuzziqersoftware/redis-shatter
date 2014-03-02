@@ -22,6 +22,7 @@ struct options {
   int num_backends;
   int num_processes;
   int process_num;
+  const char* listen_addr;
   int port;
   int listen_fd;
   char** backend_netlocs;
@@ -42,6 +43,9 @@ int execute_options_from_file(struct options* opt, const char* filename);
 void execute_option(struct options* opt, const char* option) {
   if (!strncmp(option, "--port=", 7))
     opt->port = atoi(&option[7]);
+
+  else if (!strncmp(option, "--interface=", 12))
+    opt->listen_addr = resource_strdup_raw(opt, &option[12], free);
 
   else if (!strncmp(option, "--listen-fd=", 12))
     opt->listen_fd = atoi(&option[12]);
@@ -151,13 +155,16 @@ int main(int argc, char **argv) {
 
   // if there's no listening socket from a parent process, open a new one
   if (opt->listen_fd == -1) {
-    opt->listen_fd = network_listen(NULL, opt->port, SOMAXCONN);
+    opt->listen_fd = network_listen(opt->listen_addr, opt->port, SOMAXCONN);
     if (opt->listen_fd < 0) {
-      printf("error: can\'t open server socket: %s\n",
-          network_error_str(opt->listen_fd));
+      printf("error: can\'t open server socket: %s (%d)\n",
+          network_error_str(opt->listen_fd), errno);
       return opt->listen_fd;
     }
-    printf("opened server socket %d on port %d\n", opt->listen_fd, opt->port);
+    if (opt->listen_addr)
+      printf("opened server socket %d on %s:%d\n", opt->listen_fd, opt->listen_addr, opt->port);
+    else
+      printf("opened server socket %d on port %d\n", opt->listen_fd, opt->port);
 
   } else
     printf("note: inherited server socket %d from parent process\n",

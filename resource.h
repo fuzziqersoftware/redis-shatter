@@ -32,8 +32,10 @@ void print_resource_tree(void* root);
 
 struct resource* resource_malloc(void* parent, int size, void* free_fn);
 struct resource* resource_calloc(void* parent, int size, void* free_fn);
+struct resource* resource_strdup(void* parent, const char* s, void* free_fn);
 void* resource_malloc_raw(void* parent, int size, void* free_fn);
 void* resource_calloc_raw(void* parent, int size, void* free_fn);
+char* resource_strdup_raw(void* parent, const char* s, void* free_fn);
 
 #define resource_create_var(local_res, type, name, size) \
   struct resource* name##_resource = resource_calloc(local_res, size); \

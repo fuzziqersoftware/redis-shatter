@@ -28,13 +28,14 @@ int network_listen(const char* addr, int port, int backlog) {
   }
 
   struct sockaddr_in local;
+  memset(&local, 0, sizeof(local));
   local.sin_family = PF_INET;
   local.sin_port = htons(port);
 
   if (!addr)
     local.sin_addr.s_addr = htonl(INADDR_ANY);
   else if (isdigit(addr[0]))
-    local.sin_addr.s_addr = inet_addr(addr);
+    local.sin_addr.s_addr = inet_addr("127.0.0.1");
   else {
     struct hostent* host_obj = gethostbyname(addr);
     if (host_obj == NULL)
@@ -100,15 +101,15 @@ const char* network_error_str(int error) {
     case NWERROR_DNS_FAILURE:
       return "DNS failure";
     case NWERROR_CONNECT:
-      return "Can\'t connect to remote server";
+      return "can\'t connect to remote server";
     case NWERROR_SOCKET:
-      return "Can\'t open socket";
+      return "can\'t open socket";
     case NWERROR_REUSEADDR:
-      return "Can\'t reuse server address";
+      return "can\'t reuse server address";
     case NWERROR_BIND:
-      return "Can\'t bind socket";
+      return "can\'t bind socket";
     case NWERROR_LISTEN:
-      return "Can\'t listen on socket";
+      return "can\'t listen on socket";
   }
-  return "Unknown error";
+  return "unknown error";
 }
