@@ -35,7 +35,7 @@ struct redis_backend {
 
 struct redis_backend* redis_backend_create(void* resource_parent,
     const char* host, int port);
-void redis_backend_print(struct redis_backend* b, int indent);
+void redis_backend_print(const struct redis_backend* b, int indent);
 
 struct evbuffer* redis_backend_get_output_buffer(struct redis_backend* c);
 

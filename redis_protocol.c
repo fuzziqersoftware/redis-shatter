@@ -36,7 +36,7 @@ struct redis_command* redis_command_create(void* resource_parent, int num_args) 
   return cmd;
 }
 
-void redis_command_print(struct redis_command* cmd, int indent) {
+void redis_command_print(const struct redis_command* cmd, int indent) {
 
   if (indent < 0)
     indent = -indent;
@@ -128,7 +128,7 @@ struct redis_response* redis_response_printf(void* resource_parent, uint8_t type
   return resp;
 }
 
-int redis_responses_equal(struct redis_response* a, struct redis_response* b) {
+int redis_responses_equal(const struct redis_response* a, const struct redis_response* b) {
   if (!a && !b)
     return 1;
   if (!a || !b)
@@ -163,7 +163,7 @@ int redis_responses_equal(struct redis_response* a, struct redis_response* b) {
   }
 }
 
-void redis_response_print(struct redis_response* resp, int indent) {
+void redis_response_print(const struct redis_response* resp, int indent) {
 
   if (indent < 0)
     indent = -indent;
@@ -340,7 +340,7 @@ struct redis_command* redis_command_parser_continue(void* resource_parent,
   return cmd_to_return; // no complete command was available
 }
 
-void redis_command_parser_print(struct redis_command_parser* p, int indent) {
+void redis_command_parser_print(const struct redis_command_parser* p, int indent) {
   if (indent < 0)
     indent = -indent;
   else
@@ -503,7 +503,7 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
   return resp_to_return;
 }
 
-void redis_response_parser_print(struct redis_response_parser* p, int indent) {
+void redis_response_parser_print(const struct redis_response_parser* p, int indent) {
   if (indent < 0)
     indent = -indent;
   else
@@ -525,7 +525,7 @@ void redis_response_parser_print(struct redis_response_parser* p, int indent) {
 ////////////////////////////////////////////////////////////////////////////////
 // command/response output
 
-void redis_write_command(struct evbuffer* buf, struct redis_command* cmd) {
+void redis_write_command(struct evbuffer* buf, const struct redis_command* cmd) {
   if (!buf)
     return;
 
@@ -573,7 +573,7 @@ void redis_write_int_response(struct evbuffer* buf, int64_t value, char sentinel
   evbuffer_add_printf(buf, "%c%lld\r\n", sentinel, value);
 }
 
-void redis_write_response(struct evbuffer* buf, struct redis_response* resp) {
+void redis_write_response(struct evbuffer* buf, const struct redis_response* resp) {
 
   if (!buf)
     return;

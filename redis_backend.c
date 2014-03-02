@@ -52,7 +52,7 @@ struct evbuffer* redis_backend_get_output_buffer(struct redis_backend* b) {
   return bufferevent_get_output(b->bev);
 }
 
-void redis_backend_print(struct redis_backend* b, int indent) {
+void redis_backend_print(const struct redis_backend* b, int indent) {
   if (indent < 0)
     indent = -indent;
   else

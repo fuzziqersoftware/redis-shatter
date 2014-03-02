@@ -73,12 +73,12 @@ struct redis_client {
 };
 
 struct redis_client* redis_client_create(void* resource_parent, struct bufferevent* bev);
-void redis_client_print(struct redis_client* c, int indent);
+void redis_client_print(const struct redis_client* c, int indent);
 struct evbuffer* redis_client_get_output_buffer(struct redis_client* c);
 
 struct redis_client_expected_response* redis_client_expect_response(
     struct redis_client* c, int wait_type, struct redis_command* cmd, int size);
 void redis_client_remove_expected_response(struct redis_client* c);
-void redis_client_expected_response_print(struct redis_client_expected_response* e, int indent);
+void redis_client_expected_response_print(const struct redis_client_expected_response* e, int indent);
 
 #endif // __REDIS_SOCKET_H

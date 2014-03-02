@@ -25,7 +25,7 @@ struct redis_client* redis_client_create(void* resource_parent,
   return c;
 }
 
-void redis_client_print(struct redis_client* c, int indent) {
+void redis_client_print(const struct redis_client* c, int indent) {
 
   if (indent < 0)
     indent = -indent;
@@ -129,7 +129,7 @@ static const char* redis_client_cwait_type_name(int type) {
   }
 }
 
-void redis_client_expected_response_print(struct redis_client_expected_response* e, int indent) {
+void redis_client_expected_response_print(const struct redis_client_expected_response* e, int indent) {
 
   if (indent < 0)
     indent = -indent;

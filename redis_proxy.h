@@ -31,7 +31,7 @@ struct redis_proxy {
 
   char hash_begin_delimiter;
   char hash_end_delimiter;
-  int (*index_for_key)(struct redis_proxy*, void*, int64_t);
+  int (*index_for_key)(const struct redis_proxy*, const void*, int64_t);
 };
 
 int build_command_definitions();
@@ -40,6 +40,6 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
     const char** netlocs, int num_backends, char hash_begin_delimiter,
     char hash_end_delimiter);
 void redis_proxy_serve(struct redis_proxy* proxy);
-void redis_proxy_print(struct redis_proxy* proxy, int indent);
+void redis_proxy_print(const struct redis_proxy* proxy, int indent);
 
 #endif // __REDIS_SERVER_H

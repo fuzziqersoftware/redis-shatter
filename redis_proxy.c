@@ -50,13 +50,13 @@ static int redis_parse_integer_field(const char* arg_data, int size, int64_t* va
   return 1;
 }
 
-static int redis_index_for_key_simple(struct redis_proxy* proxy, void* key,
-    int64_t size) {
+static int redis_index_for_key_simple(const struct redis_proxy* proxy,
+    const void* key, int64_t size) {
   return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_begin_delimiter(struct redis_proxy* proxy,
-    void* _key, int64_t size) {
+static int redis_index_for_key_with_begin_delimiter(
+    const struct redis_proxy* proxy, const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
   const char* key_end = (const char*)key + size;
@@ -69,8 +69,8 @@ static int redis_index_for_key_with_begin_delimiter(struct redis_proxy* proxy,
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_end_delimiter(struct redis_proxy* proxy,
-    void* _key, int64_t size) {
+static int redis_index_for_key_with_end_delimiter(
+    const struct redis_proxy* proxy, const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
   const char* key_end = (const char*)key + size;
@@ -83,8 +83,8 @@ static int redis_index_for_key_with_end_delimiter(struct redis_proxy* proxy,
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_delimiters(struct redis_proxy* proxy,
-    void* _key, int64_t size) {
+static int redis_index_for_key_with_delimiters(const struct redis_proxy* proxy,
+    const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
   const char* key_end = (const char*)key + size;
@@ -167,7 +167,7 @@ static int redis_proxy_try_send_backend_command(struct redis_backend* b,
 }
 
 static int redis_proxy_send_client_response(struct redis_client* c,
-    struct redis_response* resp) {
+    const struct redis_response* resp) {
 
   struct evbuffer* out = redis_client_get_output_buffer(c);
   if (!out) {
@@ -310,7 +310,7 @@ void redis_proxy_serve(struct redis_proxy* proxy) {
     redis_proxy_print(proxy, 0);
 }
 
-void redis_proxy_print(struct redis_proxy* proxy, int indent) {
+void redis_proxy_print(const struct redis_proxy* proxy, int indent) {
   int x;
   if (indent < 0)
     indent = -indent;
@@ -1187,8 +1187,8 @@ struct {
 
 #define MAX_COMMANDS_PER_HASH_BUCKET 8
 
-int8_t hash_to_num_commands[256];
-int16_t hash_to_command_indexes[256][MAX_COMMANDS_PER_HASH_BUCKET];
+static int8_t hash_to_num_commands[256];
+static int16_t hash_to_command_indexes[256][MAX_COMMANDS_PER_HASH_BUCKET];
 
 uint8_t hash_command(const char* cmd, int len) {
   uint8_t hash = 0;

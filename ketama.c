@@ -32,7 +32,7 @@ uint64_t fnv1a_64_start(const void* data, uint64_t size) {
 
 #define POINTS_PER_HOST 256 // must be divisible by 4
 
-static uint16_t ketama_server_hash(void* key, int64_t size, uint16_t pt) {
+static uint16_t ketama_server_hash(const void* key, int64_t size, uint16_t pt) {
   return fnv1a_64_continue(key, size, fnv1a_64_start(&pt, sizeof(uint16_t)));
 }
 
@@ -102,12 +102,12 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
   return c;
 }
 
-uint8_t ketama_server_for_key(struct ketama_continuum* c, void* key,
+uint8_t ketama_server_for_key(const struct ketama_continuum* c, const void* key,
     int64_t size) {
   return c->points[ketama_server_hash(key, size, 0)];
 }
 
-const char* ketama_hostname_for_point(struct ketama_continuum* c,
+const char* ketama_hostname_for_point(const struct ketama_continuum* c,
     int host_index) {
   return c->hosts[host_index];
 }
