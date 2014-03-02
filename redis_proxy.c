@@ -601,6 +601,16 @@ void redis_command_INFO(struct redis_proxy* proxy, struct redis_client* c,
 
   // INFO - return proxy info
   if (cmd->num_args == 1) {
+    char hash_begin_delimiter_str[5], hash_end_delimiter_str[5];
+    if (proxy->hash_begin_delimiter)
+      sprintf(hash_begin_delimiter_str, "%c", proxy->hash_begin_delimiter);
+    else
+      sprintf(hash_begin_delimiter_str, "NULL");
+    if (proxy->hash_end_delimiter)
+      sprintf(hash_end_delimiter_str, "%c", proxy->hash_end_delimiter);
+    else
+      sprintf(hash_end_delimiter_str, "NULL");
+
     struct redis_response* resp = redis_response_printf(cmd, RESPONSE_DATA, "\
 num_commands_received:%d\n\
 num_commands_sent:%d\n\
@@ -616,11 +626,14 @@ resource_refcount:%d\n\
 process_id:%d\n\
 process_num:%d\n\
 num_processes:%d\n\
+hash_begin_delimiter:%s\n\
+hash_end_delimiter:%s\n\
 ", proxy->num_commands_received, proxy->num_commands_sent,
         proxy->num_responses_received, proxy->num_responses_sent,
         proxy->num_connections_received, proxy->num_clients, proxy->num_backends,
         proxy->start_time, (time(NULL) - proxy->start_time), resource_count(),
-        resource_refcount(), getpid(), proxy->process_num, proxy->num_processes);
+        resource_refcount(), getpid(), proxy->process_num, proxy->num_processes,
+        hash_begin_delimiter_str, hash_end_delimiter_str);
     redis_proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
     return;
@@ -652,6 +665,33 @@ num_processes:%d\n\
   redis_proxy_try_send_backend_command(b, e, backend_cmd);
   resource_delete_ref(cmd, backend_cmd);
 }
+
+void redis_command_PING(struct redis_proxy* proxy, struct redis_client* c,
+    struct redis_command* cmd) {
+  redis_proxy_send_client_string_response(c, "PONG", RESPONSE_STATUS);
+}
+
+void redis_command_ECHO(struct redis_proxy* proxy, struct redis_client* c,
+    struct redis_command* cmd) {
+
+  if (cmd->num_args != 2) {
+    redis_proxy_send_client_string_response(c, "ERR wrong number of arguments",
+        RESPONSE_ERROR);
+    return;
+  }
+
+  struct redis_response* resp = redis_response_create(cmd, RESPONSE_DATA,
+      cmd->args[1].size);
+  if (!resp)
+    redis_proxy_send_client_string_response(c,
+        "PROXYERROR can\'t allocate memory", RESPONSE_ERROR);
+  else {
+    memcpy(resp->data_value.data, cmd->args[1].data, cmd->args[1].size);
+    redis_proxy_send_client_response(c, resp);
+    resource_delete_ref(cmd, resp);
+  }
+}
+
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -981,32 +1021,6 @@ void redis_command_RANDOMKEY(struct redis_proxy* proxy, struct redis_client* c,
   struct redis_client_expected_response* e = redis_client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
   redis_proxy_try_send_backend_command(b, e, cmd);
-}
-
-void redis_command_PING(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
-  redis_proxy_send_client_string_response(c, "PONG", RESPONSE_STATUS);
-}
-
-void redis_command_ECHO(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
-
-  if (cmd->num_args != 2) {
-    redis_proxy_send_client_string_response(c, "ERR wrong number of arguments",
-        RESPONSE_ERROR);
-    return;
-  }
-
-  struct redis_response* resp = redis_response_create(cmd, RESPONSE_DATA,
-      cmd->args[1].size);
-  if (!resp)
-    redis_proxy_send_client_string_response(c,
-        "PROXYERROR can\'t allocate memory", RESPONSE_ERROR);
-  else {
-    memcpy(resp->data_value.data, cmd->args[1].data, cmd->args[1].size);
-    redis_proxy_send_client_response(c, resp);
-    resource_delete_ref(cmd, resp);
-  }
 }
 
 // called when we don't know what the fuck is going on
