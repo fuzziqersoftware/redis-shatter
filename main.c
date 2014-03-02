@@ -120,7 +120,7 @@ void execute_options_from_command_line(struct options* opt, int argc,
 
 int main(int argc, char **argv) {
 
-  printf("> fuzziqer software redis-shatter\n");
+  printf("> fuzziqer software redis-shatter\n\n");
 
   // parse command-line args
   struct options* opt = (struct options*)resource_calloc(NULL,
@@ -203,7 +203,7 @@ int main(int argc, char **argv) {
   proxy->num_processes = opt->num_processes;
   proxy->process_num = opt->process_num;
 
-  printf("proxy is now ready\n");
+  printf("ready for connections\n");
   redis_proxy_serve(proxy);
 
   resource_delete(proxy, 1);

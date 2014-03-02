@@ -103,36 +103,38 @@ static int redis_index_for_key_with_delimiters(const struct redis_proxy* proxy,
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
+void redis_proxy_connect_backend(struct redis_proxy* proxy, int index) {
+  int fd = network_connect(proxy->backends[index]->host,
+      proxy->backends[index]->port);
+  if (fd < 0) {
+    printf("error: can\'t connect to backend %s:%d (%d, %d)\n",
+        proxy->backends[index]->host, proxy->backends[index]->port, fd, errno);
+    return;
+  }
+
+  int fd_flags = fcntl(fd, F_GETFD, 0);
+  if (fd_flags >= 0) {
+    fd_flags |= FD_CLOEXEC;
+    fcntl(fd, F_SETFD, fd_flags);
+  }
+
+  // set up a bufferevent for the new connection
+  proxy->backends[index]->bev = bufferevent_socket_new(proxy->base, fd,
+      BEV_OPT_CLOSE_ON_FREE);
+
+  network_get_socket_addresses(fd, &proxy->backends[index]->local,
+      &proxy->backends[index]->remote);
+
+  bufferevent_setcb(proxy->backends[index]->bev, redis_proxy_on_backend_input,
+      NULL, redis_proxy_on_backend_error, proxy->backends[index]);
+  bufferevent_enable(proxy->backends[index]->bev, EV_READ | EV_WRITE);
+}
+
 static struct redis_backend* redis_backend_for_index(struct redis_proxy* proxy,
     int index) {
 
-  if (!proxy->backends[index]->bev) {
-    int fd = network_connect(proxy->backends[index]->host,
-        proxy->backends[index]->port);
-    if (fd < 0) {
-      printf("error: can\'t connect to backend %s:%d (%d, %d)\n",
-          proxy->backends[index]->host, proxy->backends[index]->port, fd, errno);
-      return proxy->backends[index];
-    }
-
-    int fd_flags = fcntl(fd, F_GETFD, 0);
-    if (fd_flags >= 0) {
-      fd_flags |= FD_CLOEXEC;
-      fcntl(fd, F_SETFD, fd_flags);
-    }
-
-    // set up a bufferevent for the new connection
-    proxy->backends[index]->bev = bufferevent_socket_new(proxy->base, fd,
-        BEV_OPT_CLOSE_ON_FREE);
-
-    network_get_socket_addresses(fd, &proxy->backends[index]->local,
-        &proxy->backends[index]->remote);
-
-    bufferevent_setcb(proxy->backends[index]->bev, redis_proxy_on_backend_input,
-        NULL, redis_proxy_on_backend_error, proxy->backends[index]);
-    bufferevent_enable(proxy->backends[index]->bev, EV_READ | EV_WRITE);
-  }
-
+  if (!proxy->backends[index]->bev)
+    redis_proxy_connect_backend(proxy, index);
   return proxy->backends[index];
 }
 
@@ -277,7 +279,7 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
     if (!proxy->backends[x])
       printf("proxy: can\'t add backend %s\n", netlocs[x]);
     else {
-      printf("proxy: added backend %s\n", netlocs[x]);
+      redis_proxy_connect_backend(proxy, x);
       proxy->backends[x]->ctx = proxy;
     }
   }
