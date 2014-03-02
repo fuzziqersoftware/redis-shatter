@@ -50,9 +50,57 @@ static int redis_parse_integer_field(const char* arg_data, int size, int64_t* va
   return 1;
 }
 
-static inline int redis_index_for_key(struct redis_proxy* proxy, void* key,
+static int redis_index_for_key_simple(struct redis_proxy* proxy, void* key,
     int64_t size) {
   return ketama_server_for_key(proxy->ketama, key, size);
+}
+
+static int redis_index_for_key_with_begin_delimiter(struct redis_proxy* proxy,
+    void* _key, int64_t size) {
+
+  const char* key = (const char*)_key;
+  const char* key_end = (const char*)key + size;
+  const char* begin_delim = key;
+  for (; (begin_delim < key_end) && (*begin_delim != proxy->hash_begin_delimiter); begin_delim++);
+
+  if (begin_delim < key_end)
+    return ketama_server_for_key(proxy->ketama, begin_delim + 1, key_end - begin_delim - 1);
+  else
+    return ketama_server_for_key(proxy->ketama, key, size);
+}
+
+static int redis_index_for_key_with_end_delimiter(struct redis_proxy* proxy,
+    void* _key, int64_t size) {
+
+  const char* key = (const char*)_key;
+  const char* key_end = (const char*)key + size;
+  const char* end_delim = key_end;
+  for (end_delim--; (end_delim >= key) && (*end_delim != proxy->hash_end_delimiter); end_delim--);
+
+  if (end_delim >= key)
+    return ketama_server_for_key(proxy->ketama, key, end_delim - key);
+  else
+    return ketama_server_for_key(proxy->ketama, key, size);
+}
+
+static int redis_index_for_key_with_delimiters(struct redis_proxy* proxy,
+    void* _key, int64_t size) {
+
+  const char* key = (const char*)_key;
+  const char* key_end = (const char*)key + size;
+  const char* begin_delim = key;
+  const char* end_delim = key_end;
+  for (; (begin_delim < key_end) && (*begin_delim != proxy->hash_begin_delimiter); begin_delim++);
+  for (end_delim--; (end_delim >= key) && (*end_delim != proxy->hash_end_delimiter); end_delim--);
+
+  if (begin_delim < key_end && end_delim >= key && end_delim > begin_delim)
+    return ketama_server_for_key(proxy->ketama, begin_delim + 1, end_delim - begin_delim - 1);
+  else if (end_delim >= key)
+    return ketama_server_for_key(proxy->ketama, key, end_delim - key);
+  else if (begin_delim < key_end)
+    return ketama_server_for_key(proxy->ketama, begin_delim + 1, key_end - begin_delim - 1);
+  else
+    return ketama_server_for_key(proxy->ketama, key, size);
 }
 
 static struct redis_backend* redis_backend_for_index(struct redis_proxy* proxy,
@@ -90,7 +138,7 @@ static struct redis_backend* redis_backend_for_index(struct redis_proxy* proxy,
 
 static struct redis_backend* redis_backend_for_key(struct redis_proxy* proxy,
     void* key, int64_t size) {
-  return redis_backend_for_index(proxy, redis_index_for_key(proxy, key, size));
+  return redis_backend_for_index(proxy, proxy->index_for_key(proxy, key, size));
 }
 
 static int redis_proxy_try_send_backend_command(struct redis_backend* b,
@@ -180,7 +228,8 @@ static void redis_proxy_delete(struct redis_proxy* proxy) {
 }
 
 struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
-    const char** netlocs, int num_backends) {
+    const char** netlocs, int num_backends, char hash_begin_delimiter,
+    char hash_end_delimiter) {
 
   struct redis_proxy* proxy = (struct redis_proxy*)malloc(
       sizeof(struct redis_proxy));
@@ -209,6 +258,18 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
   proxy->ketama = ketama_continuum_create(proxy, num_backends, netlocs);
   proxy->num_backends = num_backends;
   proxy->num_clients = 0;
+  proxy->hash_begin_delimiter = hash_begin_delimiter;
+  proxy->hash_end_delimiter = hash_end_delimiter;
+
+  if (proxy->hash_begin_delimiter && proxy->hash_end_delimiter)
+    proxy->index_for_key = redis_index_for_key_with_delimiters;
+  else if (proxy->hash_begin_delimiter)
+    proxy->index_for_key = redis_index_for_key_with_begin_delimiter;
+  else if (proxy->hash_end_delimiter)
+    proxy->index_for_key = redis_index_for_key_with_end_delimiter;
+  else
+    proxy->index_for_key = redis_index_for_key_simple;
+
 
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
@@ -510,7 +571,7 @@ void redis_command_BACKENDNUM(struct redis_proxy* proxy,
     return;
   }
 
-  int backend_id = redis_index_for_key(proxy, cmd->args[1].data,
+  int backend_id = proxy->index_for_key(proxy, cmd->args[1].data,
       cmd->args[1].size);
   redis_proxy_send_client_int_response(c, backend_id, RESPONSE_INTEGER);
 }
@@ -620,7 +681,7 @@ void redis_command_partition_by_keys(struct redis_proxy* proxy,
   int x, y;
   for (y = 0; y < e->collect_key.num_keys; y++) {
     int arg_index = (y * args_per_key) + 1;
-    int server_index = redis_index_for_key(proxy, cmd->args[arg_index].data, cmd->args[arg_index].size);
+    int server_index = proxy->index_for_key(proxy, cmd->args[arg_index].data, cmd->args[arg_index].size);
     e->collect_key.key_to_server[y] = server_index;
     e->collect_key.server_to_key_count[server_index]++;
   }
@@ -706,11 +767,11 @@ void redis_command_forward_by_keys(struct redis_proxy* proxy,
     end_key_index = cmd->num_args;
 
   // check that the keys all hash to the same server
-  int backend_id = redis_index_for_key(proxy, cmd->args[start_key_index].data,
+  int backend_id = proxy->index_for_key(proxy, cmd->args[start_key_index].data,
       cmd->args[start_key_index].size);
   int x;
   for (x = start_key_index + 1; x < end_key_index; x++) {
-    if (redis_index_for_key(proxy, cmd->args[x].data, cmd->args[x].size)
+    if (proxy->index_for_key(proxy, cmd->args[x].data, cmd->args[x].size)
         != backend_id) {
       redis_proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
@@ -760,10 +821,10 @@ void redis_command_ZACTIONSTORE(struct redis_proxy* proxy,
   }
 
   // check that the keys all hash to the same server
-  int backend_id = redis_index_for_key(proxy, cmd->args[1].data,
+  int backend_id = proxy->index_for_key(proxy, cmd->args[1].data,
       cmd->args[1].size);
   for (x = 0; x < num_keys; x++) {
-    if (redis_index_for_key(proxy, cmd->args[3 + x].data, cmd->args[3 + x].size)
+    if (proxy->index_for_key(proxy, cmd->args[3 + x].data, cmd->args[3 + x].size)
         != backend_id) {
       redis_proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
@@ -816,10 +877,10 @@ void redis_command_EVAL(struct redis_proxy* proxy, struct redis_client* c,
   }
 
   // check that the keys all hash to the same server
-  int backend_id = redis_index_for_key(proxy, cmd->args[3].data,
+  int backend_id = proxy->index_for_key(proxy, cmd->args[3].data,
       cmd->args[3].size);
   for (x = 1; x < num_keys; x++) {
-    if (redis_index_for_key(proxy, cmd->args[x + 3].data, cmd->args[x + 3].size)
+    if (proxy->index_for_key(proxy, cmd->args[x + 3].data, cmd->args[x + 3].size)
         != backend_id) {
       redis_proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);

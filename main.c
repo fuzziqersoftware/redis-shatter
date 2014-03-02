@@ -25,6 +25,9 @@ struct options {
   int port;
   int listen_fd;
   char** backend_netlocs;
+
+  char hash_begin_delimiter;
+  char hash_end_delimiter;
 };
 
 static void free_options(struct options* opt) {
@@ -52,7 +55,13 @@ void execute_option(struct options* opt, const char* option) {
       opt->num_bad_arguments++;
     }
 
-  } else if (!strncmp(option, "--backend=", 10)) {
+  } else if (!strncmp(option, "--hash-field-begin=", 19))
+    opt->hash_begin_delimiter = option[19];
+
+  else if (!strncmp(option, "--hash-field-end=", 17))
+    opt->hash_end_delimiter = option[17];
+
+  else if (!strncmp(option, "--backend=", 10)) {
     opt->num_backends++;
     opt->backend_netlocs = (char**)realloc(opt->backend_netlocs,
         sizeof(char*) * opt->num_backends);
@@ -185,7 +194,8 @@ int main(int argc, char **argv) {
 
   // create the proxy and serve
   struct redis_proxy* proxy = redis_proxy_create(NULL, opt->listen_fd,
-      (const char**)opt->backend_netlocs, opt->num_backends);
+      (const char**)opt->backend_netlocs, opt->num_backends,
+      opt->hash_begin_delimiter, opt->hash_end_delimiter);
   if (!proxy) {
     printf("error: couldn\'t start proxy\n");
     return -1;
