@@ -74,6 +74,38 @@ int main(int argc, char* argv[]) {
   }
 
   {
+    printf("-- parse a command (inline) & serialize it again\n");
+
+    const char* command_string = "MSET x 1 y 2 z lol\r\n";
+    const char* expected_serialization = "*7\r\n$4\r\nMSET\r\n$1\r\nx\r\n$1\r\n1\r\n$1\r\ny\r\n$1\r\n2\r\n$1\r\nz\r\n$3\r\nlol\r\n";
+
+    struct evbuffer* buf = evbuffer_new();
+    evbuffer_add(buf, command_string, strlen(command_string));
+    struct redis_command_parser* parser = redis_command_parser_create(NULL);
+    struct redis_command* cmd = redis_command_parser_continue(parser, parser, buf);
+    evbuffer_free(buf);
+
+    // check that the args were parsed properly
+    test_assert(cmd->num_args == 7);
+    test_assert(cmd->args[0].size == 4 && !memcmp(cmd->args[0].data, "MSET", 4));
+    test_assert(cmd->args[1].size == 1 && !memcmp(cmd->args[1].data, "x", 1));
+    test_assert(cmd->args[2].size == 1 && !memcmp(cmd->args[2].data, "1", 1));
+    test_assert(cmd->args[3].size == 1 && !memcmp(cmd->args[3].data, "y", 1));
+    test_assert(cmd->args[4].size == 1 && !memcmp(cmd->args[4].data, "2", 1));
+    test_assert(cmd->args[5].size == 1 && !memcmp(cmd->args[5].data, "z", 1));
+    test_assert(cmd->args[6].size == 3 && !memcmp(cmd->args[6].data, "lol", 3));
+
+    // check that the serialization matches the original command
+    buf = evbuffer_new();
+    redis_write_command(buf, cmd);
+    struct evbuffer_ptr pos = evbuffer_search(buf, expected_serialization, strlen(expected_serialization), NULL);
+    test_assert(pos.pos == 0);
+
+    resource_delete(parser, 1);
+    check_counts_and_size(0, 0);
+  }
+
+  {
     printf("-- parse a response & serialize it again\n");
 
     const char* resp_string = "*6\r\n+omg\r\n-bbq\r\n:284713592\r\n$-1\r\n*-1\r\n*1\r\n$20\r\nTo be or not to be, \r\n";

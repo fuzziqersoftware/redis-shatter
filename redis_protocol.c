@@ -253,17 +253,44 @@ struct redis_command* redis_command_parser_continue(void* resource_parent,
 
     switch (st->state) {
 
-      case CMDSTATE_INITIAL: // expect a line like "*NUM_ARGS\r\n"
+      case CMDSTATE_INITIAL: // expect "*NUM_ARGS\r\n", or inline command
         input_line = evbuffer_readln(buf, &len, EVBUFFER_EOL_CRLF);
         if (!input_line) {
           can_continue = 0;
           break; // complete line not yet available
         }
 
-        if (input_line[0] != '*')
-          st->error = ERROR_UNEXPECTED_INPUT;
+        if (input_line[0] != '*') {
+          // this is an inline command. first find out how many args there are
+          // we could use strtok/strsep here but they're destructive
+          int x, num_args = 1;
+          for (x = 0; input_line[x];) {
+            for (; input_line[x] && (input_line[x] != ' '); x++);
+            if (input_line[x])
+              num_args++;
+            for (; input_line[x] && (input_line[x] == ' '); x++);
+          }
 
-        else {
+          // now parse the command
+          st->arg_in_progress = 0;
+          st->command_in_progress = redis_command_create(resource_parent, num_args);
+          int arg_start_offset = 0;
+          for (x = 0; input_line[x];) {
+            for (; input_line[x] && (input_line[x] != ' '); x++);
+
+            struct redis_argument* arg = &st->command_in_progress->args[st->arg_in_progress];
+            arg->size = x - arg_start_offset;
+            arg->data = malloc(arg->size);
+            memcpy(arg->data, &input_line[arg_start_offset], arg->size);
+            st->arg_in_progress++;
+
+            for (; input_line[x] && (input_line[x] == ' '); x++);
+            arg_start_offset = x;
+          }
+
+          cmd_to_return = st->command_in_progress;
+
+        } else {
           int num_command_args = atoi(&input_line[1]);
           if (num_command_args > 0) {
             st->command_in_progress = redis_command_create(st, num_command_args);
@@ -337,7 +364,7 @@ struct redis_command* redis_command_parser_continue(void* resource_parent,
       free(input_line);
     input_line = NULL;
   }
-  return cmd_to_return; // no complete command was available
+  return cmd_to_return;
 }
 
 void redis_command_parser_print(const struct redis_command_parser* p, int indent) {
