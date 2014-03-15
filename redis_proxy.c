@@ -600,6 +600,43 @@ void redis_command_BACKENDS(struct redis_proxy* proxy, struct redis_client* c,
   resource_delete_ref(cmd, resp);
 }
 
+void redis_command_FORWARD(struct redis_proxy* proxy,
+    struct redis_client* c, struct redis_command* cmd) {
+
+  if (cmd->num_args < 3) {
+    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+        RESPONSE_ERROR);
+    return;
+  }
+
+  int64_t x, backend_id;
+  if (!redis_parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
+      (backend_id < 0 || backend_id >= proxy->num_backends)) {
+    redis_proxy_send_client_string_response(c, "ERR backend id is invalid",
+        RESPONSE_ERROR);
+    return;
+  }
+
+  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+  if (!b) {
+    redis_proxy_send_client_string_response(c, "ERR backend does not exist",
+        RESPONSE_ERROR);
+    return;
+  }
+
+  struct redis_command* backend_cmd = redis_command_create(cmd, cmd->num_args - 2);
+  backend_cmd->external_arg_data = 1;
+  for (x = 2; x < cmd->num_args; x++) {
+    backend_cmd->args[x - 2].data = cmd->args[x].data;
+    backend_cmd->args[x - 2].size = cmd->args[x].size;
+  }
+
+  struct redis_client_expected_response* e = redis_client_expect_response(c,
+      CWAIT_FORWARD_RESPONSE, backend_cmd, proxy->num_backends);
+  redis_proxy_try_send_backend_command(b, e, backend_cmd);
+  resource_delete_ref(cmd, backend_cmd);
+}
+
 void redis_command_INFO(struct redis_proxy* proxy, struct redis_client* c,
     struct redis_command* cmd) {
 
@@ -1233,6 +1270,7 @@ struct {
   {"BACKEND",           redis_command_BACKEND},    // key - Get the backend number that the given key hashes to
   {"BACKENDNUM",        redis_command_BACKENDNUM}, // key - Get the backend number that the given key hashes to
   {"BACKENDS",          redis_command_BACKENDS},   // - Get the list of all backend netlocs
+  {"FORWARD",           redis_command_FORWARD},    // backendnum command [args] - forward the given command directly to the given backend
 
   {NULL, NULL}, // end marker
 };
