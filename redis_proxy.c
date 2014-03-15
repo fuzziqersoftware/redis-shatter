@@ -146,17 +146,20 @@ static struct redis_backend* redis_backend_for_key(struct redis_proxy* proxy,
 static int redis_proxy_try_send_backend_command(struct redis_backend* b,
     struct redis_client_expected_response* e, struct redis_command* cmd) {
 
+  if (e->error_response)
+    return 1;
+
   if (!b) {
     e->error_response = redis_response_printf(e, RESPONSE_ERROR,
         "CHANNELERROR backend is missing");
-    return 1;
+    return 2;
   }
 
   struct evbuffer* out = redis_backend_get_output_buffer(b);
   if (!out) {
     e->error_response = redis_response_printf(e, RESPONSE_ERROR,
         "CHANNELERROR backend is not connected");
-    return 2;
+    return 3;
   }
   redis_write_command(out, cmd);
   redis_backend_add_waiting_client(b, e);
@@ -353,99 +356,100 @@ void redis_proxy_print(const struct redis_proxy* proxy, int indent) {
 
 void redis_proxy_complete_response(struct redis_client_expected_response* e) {
 
-  if (!e->error_response) {
-    switch (e->wait_type) {
+  if (e->error_response) {
+    redis_proxy_send_client_response(e->client, e->error_response);
+    return;
+  }
 
-      case CWAIT_FORWARD_RESPONSE:
-        redis_proxy_send_client_response(e->client, e->response_to_forward);
-        break;
+  switch (e->wait_type) {
 
-      case CWAIT_COLLECT_STATUS_RESPONSES:
-        redis_proxy_send_client_string_response(e->client, "OK", RESPONSE_STATUS);
-        break;
+    case CWAIT_FORWARD_RESPONSE:
+      redis_proxy_send_client_response(e->client, e->response_to_forward);
+      break;
 
-      case CWAIT_SUM_INT_RESPONSES:
-        redis_proxy_send_client_int_response(e->client, e->int_sum, RESPONSE_INTEGER);
-        break;
+    case CWAIT_COLLECT_STATUS_RESPONSES:
+      redis_proxy_send_client_string_response(e->client, "OK", RESPONSE_STATUS);
+      break;
 
-      case CWAIT_COMBINE_MULTI_RESPONSES: {
-        int x, y, num_fields = 0;
-        for (x = 0; x < e->collect_multi.num_responses; x++) {
-          if (e->collect_multi.responses[x]->response_type != RESPONSE_MULTI) {
-            redis_proxy_send_client_string_response(e->client,
-                "CHANNELERROR an upstream server returned a result of the wrong type", RESPONSE_ERROR);
-            break;
-          } else
-            num_fields += e->collect_multi.responses[x]->multi_value.num_fields;
-        }
-        if (x < e->collect_multi.num_responses)
+    case CWAIT_SUM_INT_RESPONSES:
+      redis_proxy_send_client_int_response(e->client, e->int_sum, RESPONSE_INTEGER);
+      break;
+
+    case CWAIT_COMBINE_MULTI_RESPONSES: {
+      int x, y, num_fields = 0;
+      for (x = 0; x < e->collect_multi.num_responses; x++) {
+        if (e->collect_multi.responses[x]->response_type != RESPONSE_MULTI) {
+          redis_proxy_send_client_string_response(e->client,
+              "CHANNELERROR an upstream server returned a result of the wrong type", RESPONSE_ERROR);
           break;
-
-        struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
-            num_fields);
-        resp->multi_value.num_fields = 0;
-        for (x = 0; x < e->collect_multi.num_responses; x++) {
-          struct redis_response* current = e->collect_multi.responses[x];
-          if (current->multi_value.num_fields <= 0)
-            continue; // probably a null reply... redis doesn't give these but w/e
-          for (y = 0; y < current->multi_value.num_fields; y++) {
-            resp->multi_value.fields[resp->multi_value.num_fields] = current->multi_value.fields[y];
-            resp->multi_value.num_fields++;
-          }
-        }
-        redis_proxy_send_client_response(e->client, resp);
-        resource_delete_ref(e, resp);
-        break; }
-
-      case CWAIT_COLLECT_RESPONSES: {
-        struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
-            e->collect_multi.num_responses);
-        int x;
-        for (x = 0; x < e->collect_multi.num_responses; x++) {
-          struct redis_response* current = e->collect_multi.responses[x];
-          if (!current) {
-            resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_ERROR,
-                "CHANNELERROR an upstream server returned a bad response");
-          } else {
-            resp->multi_value.fields[x] = current;
-            resource_add_ref(resp, current);
-          }
-        }
-        redis_proxy_send_client_response(e->client, resp);
-        resource_delete_ref(e, resp);
-        break; }
-
-      case CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY:
-        redis_proxy_send_client_response(e->client, e->collect_key.response_in_progress);
+        } else
+          num_fields += e->collect_multi.responses[x]->multi_value.num_fields;
+      }
+      if (x < e->collect_multi.num_responses)
         break;
 
-      case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
-        int x;
-        for (x = 0; x < e->collect_multi.num_responses; x++) {
-          if (!redis_responses_equal(e->collect_multi.responses[x],
-              e->collect_multi.responses[0])) {
-            redis_proxy_send_client_string_response(e->client,
-                "CHANNELERROR backends did not return identical results", RESPONSE_ERROR);
-            break;
-          }
+      struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
+          num_fields);
+      resp->multi_value.num_fields = 0;
+      for (x = 0; x < e->collect_multi.num_responses; x++) {
+        struct redis_response* current = e->collect_multi.responses[x];
+        if (current->multi_value.num_fields <= 0)
+          continue; // probably a null reply... redis doesn't give these but w/e
+        for (y = 0; y < current->multi_value.num_fields; y++) {
+          resp->multi_value.fields[resp->multi_value.num_fields] = current->multi_value.fields[y];
+          resp->multi_value.num_fields++;
         }
-        if (e->error_response)
+      }
+      redis_proxy_send_client_response(e->client, resp);
+      resource_delete_ref(e, resp);
+      break; }
+
+    case CWAIT_COLLECT_RESPONSES: {
+      struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
+          e->collect_multi.num_responses);
+      int x;
+      for (x = 0; x < e->collect_multi.num_responses; x++) {
+        struct redis_response* current = e->collect_multi.responses[x];
+        if (!current) {
+          resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_ERROR,
+              "CHANNELERROR an upstream server returned a bad response");
+        } else {
+          resp->multi_value.fields[x] = current;
+          resource_add_ref(resp, current);
+        }
+      }
+      redis_proxy_send_client_response(e->client, resp);
+      resource_delete_ref(e, resp);
+      break; }
+
+    case CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY:
+      redis_proxy_send_client_response(e->client, e->collect_key.response_in_progress);
+      break;
+
+    case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
+      int x;
+      for (x = 0; x < e->collect_multi.num_responses; x++) {
+        if (!redis_responses_equal(e->collect_multi.responses[x],
+            e->collect_multi.responses[0])) {
+          redis_proxy_send_client_string_response(e->client,
+              "CHANNELERROR backends did not return identical results", RESPONSE_ERROR);
           break;
+        }
+      }
+      if (e->error_response)
+        break;
 
-        redis_proxy_send_client_response(e->client, e->collect_multi.responses[0]);
-        break; }
+      redis_proxy_send_client_response(e->client, e->collect_multi.responses[0]);
+      break; }
 
-      default:
-        redis_proxy_send_client_string_response(e->client,
-            "PROXYERROR invalid wait type on response completion", RESPONSE_ERROR);
-    }
+    default:
+      redis_proxy_send_client_string_response(e->client,
+          "PROXYERROR invalid wait type on response completion", RESPONSE_ERROR);
   }
 }
 
 void redis_proxy_process_client_response_chain(struct redis_client* c) {
-  // need to check for complete responses here because the command handler can
-  // add an error item on the queue
-  while (c->response_chain_head && c->response_chain_head->num_responses_expected == 0) {
+  while (c->response_chain_head && (c->response_chain_head->num_responses_expected == 0)) {
     redis_proxy_complete_response(c->response_chain_head);
     redis_client_remove_expected_response(c);
   }
@@ -1277,6 +1281,8 @@ void redis_proxy_handle_client_command(struct redis_proxy* proxy,
 
   handler_for_command(arg0_str, cmd->args[0].size)(proxy, c, cmd);
 
+  // need to check for complete responses here because the command handler can
+  // add an error item on the queue
   redis_proxy_process_client_response_chain(c);
 }
 
@@ -1379,7 +1385,8 @@ static void redis_proxy_on_backend_error(struct bufferevent *bev, short events,
     b->bev = NULL;
 
     // delete the parser, in case it was in the middle of something
-    resource_delete_ref(b, b->parser);
+    if (b->parser)
+      resource_delete_ref(b, b->parser);
     b->parser = NULL;
 
     // issue a fake error response to all waiting clients
