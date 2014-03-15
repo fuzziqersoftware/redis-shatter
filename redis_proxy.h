@@ -1,5 +1,5 @@
-#ifndef __REDIS_SERVER_H
-#define __REDIS_SERVER_H
+#ifndef __REDIS_PROXY_H
+#define __REDIS_PROXY_H
 
 #include "ketama.h"
 #include "redis_backend.h"
@@ -42,4 +42,4 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
 void redis_proxy_serve(struct redis_proxy* proxy);
 void redis_proxy_print(const struct redis_proxy* proxy, int indent);
 
-#endif // __REDIS_SERVER_H
+#endif // __REDIS_PROXY_H
