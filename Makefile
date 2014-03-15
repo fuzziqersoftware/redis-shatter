@@ -9,19 +9,19 @@ TESTS=resource_test ketama_test redis_protocol_test
 all: $(EXECUTABLE) test
 
 $(EXECUTABLE): $(OBJECTS)
-	g++ $(LDFLAGS) -o $(EXECUTABLE) $^
+	g++ -o $(EXECUTABLE) $^ $(LDFLAGS)
 
 test: $(TESTS)
 	./run_tests.sh
 
 redis_protocol_test: redis_protocol_test.o redis_protocol.o resource.o debug.o
-	g++ $(LDFLAGS) -o redis_protocol_test $^
+	g++ -o redis_protocol_test $^ $(LDFLAGS)
 
 resource_test: resource_test.o resource.o debug.o
-	g++ $(LDFLAGS) -o resource_test $^
+	g++ -o resource_test $^ $(LDFLAGS)
 
 ketama_test: ketama_test.o ketama.o resource.o debug.o
-	g++ $(LDFLAGS) -o ketama_test $^
+	g++ -o ketama_test $^ $(LDFLAGS)
 
 clean:
 	rm -rf *.dSYM *.o $(EXECUTABLE) $(TESTS) gmon.out
