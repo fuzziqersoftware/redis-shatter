@@ -98,12 +98,16 @@ struct redis_response_parser {
 
   struct redis_response_parser* multi_in_progress;
   int multi_response_current_field;
+
+  int forward_items_remaining;
 };
 
 struct redis_response_parser* redis_response_parser_create(
     void* resource_parent);
 struct redis_response* redis_response_parser_continue(void* resource_parent,
     struct redis_response_parser* st, struct evbuffer* buffer);
+int redis_response_parser_continue_forward(struct redis_response_parser* st,
+    struct evbuffer* buffer, struct evbuffer* output_buffer);
 void redis_response_parser_print(const struct redis_response_parser* p, int indent);
 
 

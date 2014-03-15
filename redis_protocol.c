@@ -530,6 +530,112 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
   return resp_to_return;
 }
 
+int redis_response_parser_continue_forward(struct redis_response_parser* st,
+    struct evbuffer* buf, struct evbuffer* output_buffer) {
+
+  char* input_line;
+  size_t len;
+  int can_continue = 1;
+  int complete_response_read = 0;
+  while (!st->error && can_continue && !complete_response_read) {
+
+    input_line = NULL;
+    switch (st->state) {
+
+      case RSPSTATE_INITIAL:
+        input_line = evbuffer_readln(buf, &len, EVBUFFER_EOL_CRLF);
+        if (!input_line) {
+          can_continue = 0;
+          break; // complete line not yet available
+        }
+
+        // forward the line to the client immediately
+        evbuffer_add_printf(output_buffer, "%s\r\n", input_line);
+
+        switch (input_line[0]) {
+          case RESPONSE_STATUS:
+          case RESPONSE_ERROR:
+          case RESPONSE_INTEGER:
+            complete_response_read = 1;
+            break;
+
+          case RESPONSE_DATA:
+            // we add 2 here for the trailing \r\n
+            st->forward_items_remaining = strtoll(&input_line[1], NULL, 0) + 2;
+            if (st->forward_items_remaining < 2)
+              complete_response_read = 1;
+            else
+              st->state = RSPSTATE_READ_DATA_RESPONSE;
+            break;
+
+          case RESPONSE_MULTI:
+            st->forward_items_remaining = strtoll(&input_line[1], NULL, 0);
+            if (st->forward_items_remaining <= 0)
+              complete_response_read = 1;
+            else {
+              if (st->multi_in_progress)
+                resource_delete_ref(st, st->multi_in_progress);
+              st->multi_in_progress = redis_response_parser_create(st);
+              st->state = RSPSTATE_MULTI_RECURSIVE;
+            }
+            break;
+
+          default:
+            st->error = ERROR_UNEXPECTED_INPUT;
+        }
+        break; // RSPSTATE_INITIAL
+
+      case RSPSTATE_MULTI_RECURSIVE: {
+        int full_response = redis_response_parser_continue_forward(
+            st->multi_in_progress, buf, output_buffer);
+        if (!full_response) {
+          if (st->multi_in_progress->error)
+            st->error = st->multi_in_progress->error;
+          can_continue = 0;
+
+        } else {
+          st->forward_items_remaining--;
+          if (st->forward_items_remaining == 0) {
+            st->state = RSPSTATE_INITIAL;
+            complete_response_read = 1;
+          }
+        }
+        break; }
+
+      case RSPSTATE_READ_DATA_RESPONSE: {
+        size_t data_to_read = evbuffer_get_length(buf);
+        if (!data_to_read)
+          can_continue = 0;
+
+        else {
+          if (data_to_read > st->forward_items_remaining)
+            data_to_read = st->forward_items_remaining;
+
+          // TODO: can we use evbuffer_add_buffer_reference here?
+          int res = evbuffer_remove_buffer(buf, output_buffer, data_to_read);
+          if (res == -1)
+            st->error = ERROR_BUFFER_COPY;
+          else
+            st->forward_items_remaining -= res;
+
+          if (st->forward_items_remaining == 0) {
+            st->state = RSPSTATE_INITIAL;
+            complete_response_read = 1;
+          }
+        }
+        break; }
+
+      default:
+        st->error = ERROR_UNKNOWN_STATE;
+    }
+
+    if (input_line)
+      free(input_line);
+    input_line = NULL;
+  }
+  return complete_response_read;
+}
+
 void redis_response_parser_print(const struct redis_response_parser* p, int indent) {
   if (indent < 0)
     indent = -indent;

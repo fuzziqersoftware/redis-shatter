@@ -41,6 +41,8 @@ struct evbuffer* redis_backend_get_output_buffer(struct redis_backend* c);
 
 void redis_backend_add_waiting_client(struct redis_backend* b,
     struct redis_client_expected_response* e);
+struct redis_client_expected_response* redis_backend_peek_waiting_client(
+    struct redis_backend* b);
 struct redis_client_expected_response* redis_backend_get_waiting_client(
     struct redis_backend* b);
 

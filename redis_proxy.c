@@ -1331,12 +1331,6 @@ static void redis_proxy_on_client_input(struct bufferevent *bev, void *ctx) {
 
   struct redis_command* cmd;
   while ((cmd = redis_command_parser_continue(c, c->parser, in_buffer))) {
-#ifdef DEBUG_COMMAND_IO
-    printf("INPUT COMMAND FROM CLIENT %s: ", c->name);
-    redis_command_print(cmd, -1);
-    printf("\n");
-#endif
-
     struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
     c->num_commands_received++;
     proxy->num_commands_received++;
@@ -1378,26 +1372,55 @@ static void redis_proxy_on_client_error(struct bufferevent *bev, short events,
 static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
   struct redis_backend* b = (struct redis_backend*)ctx;
   struct evbuffer* in_buffer = bufferevent_get_input(bev);
+  struct redis_proxy* proxy = (struct redis_proxy*)b->ctx;
 
   if (!b->parser)
     b->parser = redis_response_parser_create(b);
 
-  struct redis_response* rsp;
-  while ((rsp = redis_response_parser_continue(b, b->parser, in_buffer))) {
-#ifdef DEBUG_COMMAND_IO
-    printf("INPUT RESPONSE FROM BACKEND %s: ", b->name);
-    redis_response_print(rsp, 2);
-    printf("\n");
-#endif
+  int can_continue = 1;
+  while (can_continue && !b->parser->error) {
 
-    struct redis_proxy* proxy = (struct redis_proxy*)b->ctx;
-    b->num_responses_received++;
-    proxy->num_responses_received++;
-    redis_proxy_handle_backend_response(proxy, b, rsp);
-    resource_delete_ref(b, rsp);
+    // if the head of the queue is a forwarding client, then use the forwarding
+    // parser (don't allocate a response object)
+    struct redis_client_expected_response* e = redis_backend_peek_waiting_client(b);
+    struct evbuffer* out_buffer = NULL;
+    if (e && (e->wait_type == CWAIT_FORWARD_RESPONSE)) {
+      out_buffer = redis_client_get_output_buffer(e->client);
+      if (!out_buffer)
+        printf("warning: in forwarding mode with a missing output buffer; falling back to normal mode\n");
+    }
+
+    if (out_buffer) {
+      can_continue = redis_response_parser_continue_forward(b->parser,
+          in_buffer, out_buffer);
+      if (can_continue) {
+        b->num_responses_received++;
+        proxy->num_responses_received++;
+        e->client->num_responses_sent++;
+        proxy->num_responses_sent++;
+
+        // a full response was forwarded; delete the wait object
+        redis_backend_get_waiting_client(b);
+        redis_client_remove_expected_response(e->client);
+      }
+
+    } else {
+      struct redis_response* rsp = redis_response_parser_continue(b, b->parser,
+          in_buffer);
+      can_continue = !!rsp;
+      if (rsp) {
+        b->num_responses_received++;
+        proxy->num_responses_received++;
+        redis_proxy_handle_backend_response(proxy, b, rsp);
+        resource_delete_ref(b, rsp);
+      }
+    }
   }
-  if (b->parser->error)
-    printf("warning: parse error in backend stream %s (%d)\n", b->name, b->parser->error);
+
+  if (b->parser->error) {
+    printf("warning: parse error in backend stream %s (%d); disconnecting backend\n", b->name, b->parser->error);
+    redis_proxy_on_backend_error(bev, BEV_EVENT_EOF, b);
+  }
 }
 
 static void redis_proxy_on_backend_error(struct bufferevent *bev, short events,
