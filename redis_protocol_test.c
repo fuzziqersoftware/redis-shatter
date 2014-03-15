@@ -35,10 +35,10 @@ int main(int argc, char* argv[]) {
   {
     printf("-- create & delete a command\n");
     struct redis_command* cmd = redis_command_create(NULL, 10);
-    check_counts(1, 0); // the args aren't resources
+    check_counts(1, 1); // the args aren't resources
     test_assert(cmd->external_arg_data == 0);
     test_assert(cmd->num_args == 10);
-    resource_delete(cmd, 1);
+    resource_delete_ref(NULL, cmd);
     check_counts_and_size(0, 0);
   }
 
@@ -69,7 +69,7 @@ int main(int argc, char* argv[]) {
     struct evbuffer_ptr pos = evbuffer_search(buf, command_string, strlen(command_string), NULL);
     test_assert(pos.pos == 0);
 
-    resource_delete(parser, 1);
+    resource_delete_ref(NULL, parser);
     check_counts_and_size(0, 0);
   }
 
@@ -101,7 +101,7 @@ int main(int argc, char* argv[]) {
     struct evbuffer_ptr pos = evbuffer_search(buf, expected_serialization, strlen(expected_serialization), NULL);
     test_assert(pos.pos == 0);
 
-    resource_delete(parser, 1);
+    resource_delete_ref(NULL, parser);
     check_counts_and_size(0, 0);
   }
 
@@ -147,7 +147,7 @@ int main(int argc, char* argv[]) {
     test_assert(pos.pos == 0);
     evbuffer_free(buf);
 
-    resource_delete(parser, 1);
+    resource_delete_ref(NULL, parser);
     check_counts_and_size(0, 0);
   }
 
@@ -161,7 +161,7 @@ int main(int argc, char* argv[]) {
     redis_write_response(buf, resp);
     test_assert(evbuffer_search(buf, expected_string1, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
-    resource_delete(resp, 1);
+    resource_delete_ref(NULL, resp);
 
     resp = redis_response_printf(NULL, RESPONSE_ERROR,
         "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
@@ -170,7 +170,7 @@ int main(int argc, char* argv[]) {
     redis_write_response(buf, resp);
     test_assert(evbuffer_search(buf, expected_string2, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
-    resource_delete(resp, 1);
+    resource_delete_ref(NULL, resp);
 
     resp = redis_response_printf(NULL, RESPONSE_DATA,
         "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
@@ -179,7 +179,7 @@ int main(int argc, char* argv[]) {
     redis_write_response(buf, resp);
     test_assert(evbuffer_search(buf, expected_string3, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
-    resource_delete(resp, 1);
+    resource_delete_ref(NULL, resp);
 
     check_counts_and_size(0, 0);
   }

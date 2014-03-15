@@ -26,13 +26,13 @@ static void redis_command_delete(struct redis_command* cmd) {
 }
 
 struct redis_command* redis_command_create(void* resource_parent, int num_args) {
-  struct redis_command* cmd = (struct redis_command*)malloc(sizeof(struct redis_command) + sizeof(struct redis_argument) * num_args);
+  struct redis_command* cmd = (struct redis_command*)resource_calloc(
+      resource_parent, sizeof(struct redis_command) +
+        sizeof(struct redis_argument) * num_args, redis_command_delete);
   if (!cmd)
     return NULL;
-  memset(cmd, 0, sizeof(struct redis_command));
-  cmd->num_args = num_args;
-  resource_create(resource_parent, cmd, redis_command_delete);
   resource_annotate(cmd, "redis_command[%d]", num_args);
+  cmd->num_args = num_args;
   return cmd;
 }
 
@@ -71,14 +71,16 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
   switch (type) {
     case RESPONSE_STATUS:
     case RESPONSE_ERROR: {
-      response = (struct redis_response*)malloc(sizeof(struct redis_response) + size + 1);
+      response = (struct redis_response*)resource_malloc(resource_parent,
+          sizeof(struct redis_response) + size + 1, free);
       if (!response)
         return NULL;
       response->response_type = type;
       break; }
 
     case RESPONSE_INTEGER: {
-      response = (struct redis_response*)malloc(sizeof(struct redis_response));
+      response = (struct redis_response*)resource_malloc(resource_parent,
+          sizeof(struct redis_response), free);
       if (!response)
         return NULL;
       response->response_type = type;
@@ -86,7 +88,8 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
 
     case RESPONSE_DATA: {
       // size can be negative for a RESPONSE_DATA response, indicating a null value
-      response = (struct redis_response*)malloc(sizeof(struct redis_response) + (size < 0 ? 0 : size));
+      response = (struct redis_response*)resource_malloc(resource_parent,
+          sizeof(struct redis_response) + (size < 0 ? 0 : size), free);
       if (!response)
         return NULL;
       response->response_type = type;
@@ -95,10 +98,11 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
 
     case RESPONSE_MULTI: {
       // size can be negative for a RESPONSE_MULTI response, indicating a null value
-      response = (struct redis_response*)malloc(sizeof(struct redis_response) + ((size < 0 ? 0 : size) * sizeof(struct redis_command*)));
+      response = (struct redis_response*)resource_calloc(resource_parent,
+          sizeof(struct redis_response) +
+            ((size < 0 ? 0 : size) * sizeof(struct redis_command*)), free);
       if (!response)
         return NULL;
-      memset(response->multi_value.fields, response->multi_value.num_fields * sizeof(struct redis_response*), 0);
       response->response_type = type;
       response->multi_value.num_fields = size;
       break; }
@@ -107,7 +111,6 @@ struct redis_response* redis_response_create(void* resource_parent, uint8_t type
       return NULL;
   }
 
-  resource_create(resource_parent, response, free);
   resource_annotate(response, "redis_response[%d, %016llX]", type, size);
   return response;
 }
@@ -234,10 +237,10 @@ struct redis_command_parser* redis_command_parser_create(
     void* resource_parent) {
 
   struct redis_command_parser* st = (struct redis_command_parser*)
-      calloc(1, sizeof(struct redis_command_parser));
+      resource_calloc(resource_parent, sizeof(struct redis_command_parser),
+      free);
   if (!st)
     return NULL;
-  resource_create(resource_parent, st, free);
   resource_annotate(st, "redis_command_parser[]");
   return st;
 }
@@ -395,10 +398,10 @@ struct redis_response_parser* redis_response_parser_create(
     void* resource_parent) {
 
   struct redis_response_parser* st = (struct redis_response_parser*)
-      calloc(1, sizeof(struct redis_response_parser));
+      resource_calloc(resource_parent, sizeof(struct redis_response_parser),
+      free);
   if (!st)
     return NULL;
-  resource_create(resource_parent, st, free);
   resource_annotate(st, "redis_response_parser[]");
   return st;
 }
@@ -533,6 +536,9 @@ struct redis_response* redis_response_parser_continue(void* resource_parent,
 int redis_response_parser_continue_forward(struct redis_response_parser* st,
     struct evbuffer* buf, struct evbuffer* output_buffer) {
 
+  // output_buffer can be NULL if the client has already disconnected. in this
+  // case, we just don't write to the output buffer (discard the response).
+
   char* input_line;
   size_t len;
   int can_continue = 1;
@@ -550,7 +556,8 @@ int redis_response_parser_continue_forward(struct redis_response_parser* st,
         }
 
         // forward the line to the client immediately
-        evbuffer_add_printf(output_buffer, "%s\r\n", input_line);
+        if (output_buffer)
+          evbuffer_add_printf(output_buffer, "%s\r\n", input_line);
 
         switch (input_line[0]) {
           case RESPONSE_STATUS:
@@ -612,7 +619,12 @@ int redis_response_parser_continue_forward(struct redis_response_parser* st,
             data_to_read = st->forward_items_remaining;
 
           // TODO: can we use evbuffer_add_buffer_reference here?
-          int res = evbuffer_remove_buffer(buf, output_buffer, data_to_read);
+          int res = data_to_read;
+          if (output_buffer)
+            res = evbuffer_remove_buffer(buf, output_buffer, data_to_read);
+          else
+            evbuffer_drain(buf, data_to_read);
+
           if (res == -1)
             st->error = ERROR_BUFFER_COPY;
           else

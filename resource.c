@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -36,91 +37,14 @@ int64_t resource_size() {
   return total_resource_size;
 }
 
-void resource_add_ref(void* _r, void* _target) {
 
-  struct resource* r = (struct resource*)_r;
-  struct resource* target = (struct resource*)_target;
-
-  if (r->num_outbound_refs >= r->outbound_refs_space) {
-    if (r->outbound_refs_space == 0)
-      r->outbound_refs_space = 16;
-    else
-      r->outbound_refs_space <<= 1;
-    r->outbound_refs = (struct resource**)realloc(r->outbound_refs,
-        r->outbound_refs_space * sizeof(struct resource*));
-    if (!r->outbound_refs) {
-      printf("error: cannot allocate space for references\n");
-      debug_abort_stacktrace();
-    }
-  }
-
-  r->outbound_refs[r->num_outbound_refs] = target;
-  r->num_outbound_refs++;
-  target->num_inbound_refs++;
-
-  total_num_refs++;
-
-#ifdef DEBUG_RESOURCES
-  printf("(%d, %d) resource: added reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
-      total_num_resources, total_num_refs, r, r->annotation,
-      r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
-      target->num_inbound_refs, target->num_outbound_refs);
-#endif
-}
-
-void resource_delete_ref(void* _r, void* _target) {
-
-  struct resource* r = (struct resource*)_r;
-  struct resource* target = (struct resource*)_target;
-
-  // TODO: binary search that shit, or use a hash set (maybe better if there
-  // tend to be a lot of refs)
-  int x;
-  for (x = 0; x < r->num_outbound_refs; x++)
-    if (r->outbound_refs[x] == target)
-      break;
-  if (x >= r->num_outbound_refs) {
-    printf("error: deleting reference that does not exist: %p->%p\n", r,
-        target);
-    debug_abort_stacktrace();
-  }
-  r->num_outbound_refs--;
-  target->num_inbound_refs--;
-  memcpy(&r->outbound_refs[x], &r->outbound_refs[x + 1],
-      sizeof(struct resource*) * (r->num_outbound_refs - x));
-
-  total_num_refs--;
-
-#ifdef DEBUG_RESOURCES
-  printf("(%d, %d) resource: removed reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
-      total_num_resources, total_num_refs, r, r->annotation,
-      r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
-      target->num_inbound_refs, target->num_outbound_refs);
-#endif
-
-  if (target->num_inbound_refs < 0)
-    debug_abort_stacktrace();
-
-  // theoretically it should be safe to do this outside the mutex; if the
-  // refcount is zero then no other thread should be able to touch this object
-  if (target->num_inbound_refs == 0)
-    resource_delete(target, 0);
-}
-
-void resource_delete_explicit_ref(void* _r) {
-  struct resource* r = (struct resource*)_r;
-  r->num_inbound_refs--;
-
-  if (r->num_inbound_refs == 0)
-    resource_delete(r, 0);
-}
 
 void resource_create(void* _parent, void* _r, void* free_fn) {
 
   struct resource* parent = (struct resource*)_parent;
   struct resource* r = (struct resource*)_r;
 
-  r->num_inbound_refs = (_parent ? 0 : 1);
+  r->num_inbound_refs = 0;
   r->num_outbound_refs = 0;
   r->outbound_refs_space = 0;
   r->outbound_refs = NULL;
@@ -137,17 +61,16 @@ void resource_create(void* _parent, void* _r, void* free_fn) {
   all_resources[total_num_resources - 1] = r;
 #endif
 
-  if (parent)
-    resource_add_ref(parent, r);
+  resource_add_ref(parent, r);
 }
 
-void resource_delete(void* _r, int num_explicit_refs) {
+static void resource_delete(void* _r, int num_explicit_refs) {
 
   struct resource* r = (struct resource*)_r;
 
   if (r->num_inbound_refs != num_explicit_refs) {
     // oh fuck
-    printf("error: deleting resource %p with refcount == %lld\n", r,
+    printf("error: deleting resource %p with refcount == %llu\n", r,
         r->num_inbound_refs);
     debug_abort_stacktrace();
   }
@@ -167,7 +90,7 @@ void resource_delete(void* _r, int num_explicit_refs) {
   total_num_resources--;
 
 #ifdef DEBUG_RESOURCES
-  memcpy(&all_resources[x], &all_resources[x + 1], sizeof(struct resource*) * (total_num_resources - x));
+  memmove(&all_resources[x], &all_resources[x + 1], sizeof(struct resource*) * (total_num_resources - x));
   all_resources[total_num_resources] = NULL;
 
   printf("(%d, %d) resource: deleting %p\"%s\"(>%lld explicit)\n",
@@ -184,22 +107,94 @@ void resource_delete(void* _r, int num_explicit_refs) {
     r->free(r);
 }
 
-static void print_resource_tree_again(struct resource* root,
-    int indent) {
-  print_indent(indent);
+
+
+void resource_add_ref(void* _r, void* _target) {
+
+  struct resource* r = (struct resource*)_r;
+  struct resource* target = (struct resource*)_target;
+
+  if (r) {
+    if (r->num_outbound_refs >= r->outbound_refs_space) {
+      if (r->outbound_refs_space == 0)
+        r->outbound_refs_space = 16;
+      else
+        r->outbound_refs_space <<= 1;
+      r->outbound_refs = (struct resource**)realloc(r->outbound_refs,
+          r->outbound_refs_space * sizeof(struct resource*));
+      if (!r->outbound_refs) {
+        printf("error: cannot allocate space for references\n");
+        debug_abort_stacktrace();
+      }
+    }
+  r  ->outbound_refs[r->num_outbound_refs] = target;
+    r->num_outbound_refs++;
+  }
+
+  target->num_inbound_refs++;
+  total_num_refs++;
+
 #ifdef DEBUG_RESOURCES
-  printf("%p\"%s\"\n", root, root->annotation);
-#else
-  printf("%p\n", root);
+  if (r)
+    printf("(%d, %d) resource: added reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
+        total_num_resources, total_num_refs, r, r->annotation,
+        r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
+        target->num_inbound_refs, target->num_outbound_refs);
+  else
+    printf("(%d, %d) resource: added reference NULL -> %p\"%s\"(>%lld/%lld>)\n",
+        total_num_resources, total_num_refs, target, target->annotation,
+        target->num_inbound_refs, target->num_outbound_refs);
 #endif
-  int y;
-  for (y = 0; y < root->num_outbound_refs; y++)
-    print_resource_tree_again(root->outbound_refs[y], indent + 1);
 }
 
-void print_resource_tree(void* root) {
-  print_resource_tree_again((struct resource*)root, 0);
+void resource_delete_ref(void* _r, void* _target) {
+
+  struct resource* r = (struct resource*)_r;
+  struct resource* target = (struct resource*)_target;
+
+  // if r is NULL, we're deleting an explicit (stack) ref
+  if (r) {
+    // we should do binary search or use a hash set here if there tend to be a
+    // lot of refs per object - currently there aren't so this is fine
+    int x;
+    for (x = 0; x < r->num_outbound_refs; x++)
+      if (r->outbound_refs[x] == target)
+        break;
+    if (x >= r->num_outbound_refs) {
+      printf("error: deleting reference that does not exist: %p->%p\n", r,
+          target);
+      debug_abort_stacktrace();
+    }
+    r->num_outbound_refs--;
+    memmove(&r->outbound_refs[x], &r->outbound_refs[x + 1],
+        sizeof(struct resource*) * (r->num_outbound_refs - x));
+  }
+
+  target->num_inbound_refs--;
+  total_num_refs--;
+
+#ifdef DEBUG_RESOURCES
+  if (r)
+    printf("(%d, %d) resource: removed reference %p\"%s\"(>%lld/%lld>) -> %p\"%s\"(>%lld/%lld>)\n",
+        total_num_resources, total_num_refs, r, r->annotation,
+        r->num_inbound_refs, r->num_outbound_refs, target, target->annotation,
+        target->num_inbound_refs, target->num_outbound_refs);
+  else
+    printf("(%d, %d) resource: removed reference NULL -> %p\"%s\"(>%lld/%lld>)\n",
+        total_num_resources, total_num_refs, target, target->annotation,
+        target->num_inbound_refs, target->num_outbound_refs);
+#endif
+
+  if (target->num_inbound_refs < 0)
+    debug_abort_stacktrace();
+
+  // theoretically it should be safe to do this outside the mutex; if the
+  // refcount is zero then no other thread should be able to touch this object
+  if (target->num_inbound_refs == 0)
+    resource_delete(target, 0);
 }
+
+
 
 struct resource* resource_malloc(void* parent, int size, void* free_fn) {
   size += sizeof(struct resource);
@@ -247,4 +242,23 @@ char* resource_strdup_raw(void* parent, const char* s, void* free_fn) {
     return NULL;
   resource_annotate(r, "resource_strdup");
   return (char*)&r->data[0];
+}
+
+
+
+static void print_resource_tree_again(struct resource* root,
+    int indent) {
+  print_indent(indent);
+#ifdef DEBUG_RESOURCES
+  printf("%p\"%s\"\n", root, root->annotation);
+#else
+  printf("%p\n", root);
+#endif
+  int y;
+  for (y = 0; y < root->num_outbound_refs; y++)
+    print_resource_tree_again(root->outbound_refs[y], indent + 1);
+}
+
+void print_resource_tree(void* root) {
+  print_resource_tree_again((struct resource*)root, 0);
 }

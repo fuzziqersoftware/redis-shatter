@@ -46,12 +46,11 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
   for (x = 0; x < num_hosts; x++)
     host_space_needed += (strlen(hosts[x]) + 1);
 
-  struct ketama_continuum* c = (struct ketama_continuum*)malloc(
-      sizeof(struct ketama_continuum) + sizeof(char*) * num_hosts +
-      host_space_needed);
+  struct ketama_continuum* c = (struct ketama_continuum*)resource_calloc(
+      resource_parent, sizeof(struct ketama_continuum) +
+        sizeof(char*) * num_hosts + host_space_needed, free);
   if (!c)
     return NULL;
-  resource_create(resource_parent, c, free);
   resource_annotate(c, "ketama_continuum[%d, %p]", num_hosts, hosts);
   c->num_hosts = num_hosts;
   memset(c->points, 0xFF, 65536);
@@ -99,6 +98,7 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
       current_host = c->points[x];
   }
 
+  resource_delete_ref(c, hosts_used);
   return c;
 }
 

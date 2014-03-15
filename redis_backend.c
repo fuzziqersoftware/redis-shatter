@@ -16,11 +16,10 @@ static void redis_backend_delete(struct redis_backend* c) {
 }
 
 struct redis_backend* redis_backend_create(void* resource_parent, const char* host, int port) {
-  struct redis_backend* b = (struct redis_backend*)malloc(
-      sizeof(struct redis_backend));
+  struct redis_backend* b = (struct redis_backend*)resource_calloc(
+      resource_parent, sizeof(struct redis_backend), redis_backend_delete);
   if (!b)
     return NULL;
-  resource_create(resource_parent, b, redis_backend_delete);
   resource_annotate(b, "redis_backend[%s:%d]", host, port);
 
   if (port == 0) {
@@ -41,8 +40,6 @@ struct redis_backend* redis_backend_create(void* resource_parent, const char* ho
   }
   sprintf(b->name, "%s:%d", b->host, b->port);
 
-  b->wait_chain_head = NULL;
-  b->wait_chain_tail = NULL;
   return b;
 }
 

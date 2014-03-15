@@ -16,10 +16,10 @@ static void redis_client_delete(struct redis_client* c) {
 struct redis_client* redis_client_create(void* resource_parent,
     struct bufferevent* bev) {
 
-  struct redis_client* c = (struct redis_client*)calloc(1, sizeof(struct redis_client));
+  struct redis_client* c = (struct redis_client*)resource_calloc(
+      resource_parent, sizeof(struct redis_client), redis_client_delete);
   if (!c)
     return NULL;
-  resource_create(resource_parent, c, redis_client_delete);
   resource_annotate(c, "redis_client[%p]", bev);
   c->bev = bev;
   return c;

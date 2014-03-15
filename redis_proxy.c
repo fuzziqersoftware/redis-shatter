@@ -236,35 +236,41 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
     const char** netlocs, int num_backends, char hash_begin_delimiter,
     char hash_end_delimiter) {
 
-  struct redis_proxy* proxy = (struct redis_proxy*)malloc(
-      sizeof(struct redis_proxy));
-  if (!proxy)
-    goto redis_proxy_create_error;
+  struct redis_proxy* proxy = (struct redis_proxy*)resource_calloc(
+      resource_parent, sizeof(struct redis_proxy), redis_proxy_delete);
+  if (!proxy) {
+    resource_delete_ref(resource_parent, proxy);
+    return NULL;
+  }
 
-  proxy->backends = (struct redis_backend**)malloc(sizeof(struct redis_backend*) * num_backends);
-  if (!proxy->backends)
-    goto redis_proxy_create_error;
+  resource_annotate(proxy, "redis_proxy[%d]", listen_fd);
+  proxy->listen_fd = listen_fd;
+  proxy->ketama = ketama_continuum_create(proxy, num_backends, netlocs);
+  proxy->num_backends = num_backends;
+  proxy->hash_begin_delimiter = hash_begin_delimiter;
+  proxy->hash_end_delimiter = hash_end_delimiter;
+
+  proxy->backends = (struct redis_backend**)resource_calloc(proxy,
+      sizeof(struct redis_backend*) * num_backends, free);
+  if (!proxy->backends) {
+    resource_delete_ref(resource_parent, proxy);
+    return NULL;
+  }
 
   proxy->base = event_base_new();
-  if (!proxy->base)
-    goto redis_proxy_create_error;
+  if (!proxy->base) {
+    resource_delete_ref(resource_parent, proxy);
+    return NULL;
+  }
 
   evutil_make_socket_nonblocking(listen_fd);
   proxy->listener = evconnlistener_new(proxy->base,
       redis_proxy_on_client_accept, proxy, LEV_OPT_REUSEABLE, 0, listen_fd);
-  if (!proxy->listener)
-    goto redis_proxy_create_error;
+  if (!proxy->listener) {
+    resource_delete_ref(resource_parent, proxy);
+    return NULL;
+  }
   evconnlistener_set_error_cb(proxy->listener, redis_proxy_on_listen_error);
-
-  resource_create(resource_parent, proxy, redis_proxy_delete);
-  resource_annotate(proxy, "redis_proxy[%d]", listen_fd);
-  proxy->listen_fd = listen_fd;
-
-  proxy->ketama = ketama_continuum_create(proxy, num_backends, netlocs);
-  proxy->num_backends = num_backends;
-  proxy->num_clients = 0;
-  proxy->hash_begin_delimiter = hash_begin_delimiter;
-  proxy->hash_end_delimiter = hash_end_delimiter;
 
   if (proxy->hash_begin_delimiter && proxy->hash_end_delimiter)
     proxy->index_for_key = redis_index_for_key_with_delimiters;
@@ -275,7 +281,6 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
   else
     proxy->index_for_key = redis_index_for_key_simple;
 
-
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
     proxy->backends[x] = redis_backend_create(proxy, netlocs[x], 0);
@@ -285,20 +290,6 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
       redis_proxy_connect_backend(proxy, x);
       proxy->backends[x]->ctx = proxy;
     }
-  }
-
-  if (0) {
-redis_proxy_create_error:
-    if (proxy) {
-      if (proxy->backends)
-        free(proxy->backends);
-      if (proxy->listener)
-        evconnlistener_free(proxy->listener);
-      if (proxy->base)
-        event_base_free(proxy->base);
-      free(proxy);
-    }
-    return NULL;
   }
 
   return proxy;
@@ -1096,7 +1087,7 @@ void redis_command_RANDOMKEY(struct redis_proxy* proxy, struct redis_client* c,
   redis_proxy_try_send_backend_command(b, e, cmd);
 }
 
-// called when we don't know what the fuck is going on
+// called when we have no idea what is going on
 void redis_command_default(struct redis_proxy* proxy, struct redis_client* c,
     struct redis_command* cmd) {
 
@@ -1421,14 +1412,8 @@ static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
     // if the head of the queue is a forwarding client, then use the forwarding
     // parser (don't allocate a response object)
     struct redis_client_expected_response* e = redis_backend_peek_waiting_client(b);
-    struct evbuffer* out_buffer = NULL;
     if (e && (e->wait_type == CWAIT_FORWARD_RESPONSE)) {
-      out_buffer = redis_client_get_output_buffer(e->client);
-      if (!out_buffer)
-        printf("warning: in forwarding mode with a missing output buffer; falling back to normal mode\n");
-    }
-
-    if (out_buffer) {
+      struct evbuffer* out_buffer = redis_client_get_output_buffer(e->client);
       can_continue = redis_response_parser_continue_forward(b->parser,
           in_buffer, out_buffer);
       if (can_continue) {

@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
   printf("ready for connections\n");
   redis_proxy_serve(proxy);
 
-  resource_delete(proxy, 1);
-  resource_delete(opt, 1);
+  resource_delete_ref(NULL, proxy);
+  resource_delete_ref(NULL, opt);
   return 0;
 }

@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
     test_assert(c->num_hosts == 0);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] == 0xFF);
-    resource_delete(c, 1);
+    resource_delete_ref(NULL, c);
   }
 
   {
@@ -36,7 +36,7 @@ int main(int argc, char* argv[]) {
     test_assert(c->num_hosts == 1);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] == 0);
-    resource_delete(c, 1);
+    resource_delete_ref(NULL, c);
   }
 
   {
@@ -46,7 +46,7 @@ int main(int argc, char* argv[]) {
     test_assert(c->num_hosts == 3);
     for (x = 0; x < 0x10000; x++)
       test_assert(c->points[x] <= 2);
-    resource_delete(c, 1);
+    resource_delete_ref(NULL, c);
   }
 
   {
@@ -61,7 +61,7 @@ int main(int argc, char* argv[]) {
     }
     test_assert(host_counts[0] + host_counts[1] == 0x10000);
     test_assert(abs(host_counts[0] - host_counts[1]) < 0x1000); // allow 1/16th deviation
-    resource_delete(c, 1);
+    resource_delete_ref(NULL, c);
   }
 
   {
@@ -78,8 +78,8 @@ int main(int argc, char* argv[]) {
         test_assert(c1->points[x] == c2->points[x]);
       }
     }
-    resource_delete(c1, 1);
-    resource_delete(c2, 1);
+    resource_delete_ref(NULL, c1);
+    resource_delete_ref(NULL, c2);
   }
 
   {
@@ -95,8 +95,8 @@ int main(int argc, char* argv[]) {
       const char* host2 = ketama_hostname_for_point(c2, c2->points[x]);
       test_assert(!strcmp(host1, host2));
     }
-    resource_delete(c1, 1);
-    resource_delete(c2, 1);
+    resource_delete_ref(NULL, c1);
+    resource_delete_ref(NULL, c2);
   }
 
   if (num_failures)
