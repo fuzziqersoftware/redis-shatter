@@ -643,8 +643,40 @@ hash_end_delimiter:%s\n\
     return;
   }
 
-  // INFO num - return backend info
-  // INFO num section - return backend info
+  // INFO BACKEND num - return proxy's info for backend num
+  if ((cmd->num_args == 3) && (cmd->args[1].size == 7) &&
+      !memcmp(cmd->args[1].data, "BACKEND", 7)) {
+    int64_t backend_id;
+    if (!redis_parse_integer_field(cmd->args[2].data, cmd->args[2].size, &backend_id) ||
+        (backend_id < 0 || backend_id >= proxy->num_backends)) {
+      redis_proxy_send_client_string_response(c, "ERR backend id is invalid",
+          RESPONSE_ERROR);
+      return;
+    }
+
+    struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+    if (!b) {
+      redis_proxy_send_client_string_response(c, "ERR backend does not exist",
+          RESPONSE_ERROR);
+      return;
+    }
+
+    struct redis_response* resp = redis_response_printf(cmd, RESPONSE_DATA, "\
+name:%s\n\
+host:%s\n\
+port:%d\n\
+connected:%d\n\
+num_commands_sent:%d\n\
+num_responses_received:%d\n\
+", b->name, b->host, b->port, (b->bev ? 1 : 0), b->num_commands_sent,
+        b->num_responses_received);
+    redis_proxy_send_client_response(c, resp);
+    resource_delete_ref(cmd, resp);
+    return;
+  }
+
+  // INFO num - return info from backend server
+  // INFO num section - return info from backend server
 
   int64_t x, backend_id;
   if (!redis_parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
