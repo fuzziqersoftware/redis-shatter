@@ -1,0 +1,224 @@
+redis-shatter is a sharding proxy for the redis protocol, inspired by twemproxy
+(https://github.com/twitter/twemproxy). I undertook this as a personal project
+in order to learn more about redis, libevent, and networking. I see it as a
+proof-of-concept and it's probably not production-ready.
+
+Documentation on how to actually use this thing is in the example configuration
+file, redis-shatter.conf.example.
+
+In essence, this proxy appears like a standard redis server to other hosts, but
+doesn't store any data locally - instead, keys are distributed between multiple
+backends (other hosts that speak the redis protocol, usually redis-servers).
+This can give useful speed, reliability, and scalability benefits, but has some
+significant drawbacks as well:
+- Command execution requires another network hop. This issue can be mitigated
+  using pipelining.
+- Complex commands that affect multiple keys cannot be run efficiently unless
+  the affected keys are all on the same backend. There are inefficient ways to
+  run these commands, but these are not implemented by redis-shatter.
+
+
+List of supported commands:
+
+Command           -- Supported  -- Notes (see end)
+--------------------------------------------------
+APPEND            -- Yes        --
+AUTH              -- No         --
+BGREWRITEAOF      -- Yes        -- *6
+BGSAVE            -- Yes        -- *6
+BITCOUNT          -- Yes        --
+BITOP             -- Yes        -- *2
+BLPOP             -- No         --
+BRPOP             -- No         --
+BRPOPLPUSH        -- No         --
+CLIENT KILL       -- No         --
+CLIENT LIST       -- No         --
+CONFIG GET        -- Yes        -- *5
+CONFIG RESETSTAT  -- Yes        -- *6
+CONFIG SET        -- Yes        -- *6
+DBSIZE            -- Yes        -- *A
+DEBUG OBJECT      -- Yes        --
+DEBUG SEGFAULT    -- No         --
+DECR              -- Yes        --
+DECRBY            -- Yes        --
+DEL               -- Yes        --
+DISCARD           -- No         --
+DUMP              -- Yes        --
+ECHO              -- Yes        --
+EVAL              -- Yes        -- *2
+EVALSHA           -- Yes        -- *2
+EXEC              -- No         --
+EXISTS            -- Yes        --
+EXPIRE            -- Yes        --
+EXPIREAT          -- Yes        --
+FLUSHALL          -- Yes        -- *6
+FLUSHDB           -- Yes        -- *6 *7
+GET               -- Yes        --
+GETBIT            -- Yes        --
+GETRANGE          -- Yes        --
+GETSET            -- Yes        --
+HDEL              -- Yes        --
+HEXISTS           -- Yes        --
+HGET              -- Yes        --
+HGETALL           -- Yes        --
+HINCRBY           -- Yes        --
+HINCRBYFLOAT      -- Yes        --
+HKEYS             -- Yes        --
+HLEN              -- Yes        --
+HMGET             -- Yes        --
+HMSET             -- Yes        --
+HSCAN             -- Yes        --
+HSET              -- Yes        --
+HSETNX            -- Yes        --
+HVALS             -- Yes        --
+INCR              -- Yes        --
+INCRBY            -- Yes        --
+INCRBYFLOAT       -- Yes        --
+INFO              -- Yes        -- *8
+KEYS              -- Yes        -- *9
+LASTSAVE          -- Yes        -- *5
+LINDEX            -- Yes        --
+LINSERT           -- Yes        --
+LLEN              -- Yes        --
+LPOP              -- Yes        --
+LPUSH             -- Yes        --
+LPUSHX            -- Yes        --
+LRANGE            -- Yes        --
+LREM              -- Yes        --
+LSET              -- Yes        --
+LTRIM             -- Yes        --
+MGET              -- Yes        -- *4
+MIGRATE           -- Yes        --
+MONITOR           -- No         --
+MOVE              -- No         --
+MSET              -- Yes        -- *4
+MSETNX            -- No         --
+MULTI             -- No         --
+OBJECT            -- Yes        --
+PERSIST           -- Yes        --
+PEXPIRE           -- Yes        --
+PEXPIREAT         -- Yes        --
+PING              -- Yes        --
+PSETEX            -- Yes        --
+PSUBSCRIBE        -- No         --
+PTTL              -- Yes        --
+PUBLISH           -- No         --
+PUNSUBSCRIBE      -- No         --
+QUIT              -- No         --
+RANDOMKEY         -- Yes        -- *1
+RENAME            -- Yes        -- *2
+RENAMENX          -- Yes        -- *2
+RESTORE           -- Yes        --
+RPOP              -- Yes        --
+RPOPLPUSH         -- Yes        -- *2
+RPUSH             -- Yes        --
+RPUSHX            -- Yes        --
+SADD              -- Yes        --
+SAVE              -- Yes        -- *6
+SCAN              -- No         --
+SCARD             -- Yes        --
+SCRIPT EXISTS     -- Yes        -- *5
+SCRIPT FLUSH      -- Yes        -- *6
+SCRIPT KILL       -- No         --
+SCRIPT LOAD       -- Yes        -- *6
+SDIFF             -- Yes        -- *2
+SDIFFSTORE        -- Yes        -- *2
+SELECT            -- No         --
+SET               -- Yes        --
+SETBIT            -- Yes        --
+SETEX             -- Yes        --
+SETNX             -- Yes        --
+SETRANGE          -- Yes        --
+SHUTDOWN          -- No         --
+SINTER            -- Yes        -- *2
+SINTERSTORE       -- Yes        -- *2
+SISMEMBER         -- Yes        --
+SLAVEOF           -- No         --
+SLOWLOG           -- No         --
+SMEMBERS          -- Yes        --
+SMOVE             -- Yes        -- *2
+SORT              -- Yes        -- *2 *3
+SPOP              -- Yes        --
+SRANDMEMBER       -- Yes        --
+SREM              -- Yes        --
+SSCAN             -- Yes        --
+STRLEN            -- Yes        --
+SUBSCRIBE         -- No         --
+SUNION            -- Yes        -- *2
+SUNIONSTORE       -- Yes        -- *2
+SYNC              -- No         --
+TIME              -- Yes        -- *6
+TTL               -- Yes        --
+TYPE              -- Yes        --
+UNSUBSCRIBE       -- No         --
+UNWATCH           -- No         --
+WATCH             -- No         --
+ZADD              -- Yes        --
+ZCARD             -- Yes        --
+ZCOUNT            -- Yes        --
+ZINCRBY           -- Yes        --
+ZINTERSTORE       -- Yes        -- *2
+ZRANGE            -- Yes        --
+ZRANGEBYSCORE     -- Yes        --
+ZRANK             -- Yes        --
+ZREM              -- Yes        --
+ZREMRANGEBYRANK   -- Yes        --
+ZREMRANGEBYSCORE  -- Yes        --
+ZREVRANGE         -- Yes        --
+ZREVRANGEBYSCORE  -- Yes        --
+ZREVRANK          -- Yes        --
+ZSCAN             -- Yes        --
+ZSCORE            -- Yes        --
+ZUNIONSTORE       -- Yes        -- *2
+
+Notes:
+*1 -- Distribution of random keys may not be exactly uniform. RANDOMKEY is
+      implemented by choosing a random backend and sending RANDOMKEY to it, so
+      if backend A has more keys than backend B, the probability of returning
+      each key from backend B is higher.
+*2 -- The affected keys must all be on the same backend. If they aren't, the
+      command fails with PROXYERROR.
+*3 -- Shatter does not check that all the affected keys are on the same backend;
+      the application has to do this itself. This may be fixed in the future.
+*4 -- These commands are atomic only on each backend; they are not atomic across
+      all backends.
+*5 -- Response format is different than redis-server - the proxy returns a multi
+      response with one field per backend.
+*6 -- These commands are forwarded to all backends.
+*7 -- Since redis-shatter doesn't support multiple redis DBs, FLUSHDB is
+      essentially equivalent to FLUSHALL.
+*8 -- INFO syntax is different from what redis-server expects. These are the
+      valid forms of the INFO command in redis-shatter:
+      - INFO - return proxy information
+      - INFO BACKEND <num> - return proxy stats for the specified backend
+      - INFO <num> [section] - send INFO to a specific backend
+*9 -- May be slow and consume lots of memory if run on large datasets. Keys may
+      appear multiple times or be inaccessible through redis-shatter if they
+      exist on the wrong backend - for example, if 'x' belongs on backend 3 but
+      exists on backends 5 and 3, then 'x' will appear twice in the KEYS result.
+      If 'x' exists on backend 5 and not 3, then 'x' will appear once in the
+      KEYS result but 'GET x' will return nil.
+*A -- Keys may be double-counted if they exist on the wrong backend - for
+      example, if 'x' belongs on backend 3 but exists on backends 5 and 3, then
+      'x' will be counted twice. If 'x' exists on backend 5 and not 3, then 'x'
+      will be counted once but will not be accessible through redis-shatter.
+
+
+redis-shatter also implements some commands that aren't part of the official
+redis protocol.
+
+List of extra commands:
+
+BACKEND <key>
+  Returns the name of the backend on which the given key belongs.
+
+BACKENDNUM <key>
+  Returns the number of the backend on which the given key belongs.
+
+BACKENDS
+  Returns a list of all backend names. The backends are in numbered order in
+  this list (the first is backend 0, the second is backend 1, and so on).
+
+FORWARD <num> <command> [args...]
+  Forwards the given command directly to the given backend. You can use this in
+  lieu of connecting directly to the backend.
