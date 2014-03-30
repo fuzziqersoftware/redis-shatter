@@ -6,7 +6,7 @@
 
 #include "debug.h"
 
-#include "redis_protocol.h"
+#include "protocol.h"
 
 #define test_assert(cond) { \
   if (!(cond)) { \
@@ -25,7 +25,7 @@
 
 int main(int argc, char* argv[]) {
 
-  printf("redis_protocol tests\n");
+  printf("protocol tests\n");
   int num_failures = 0;
 
   int64_t base_num_resources = resource_count();
@@ -34,7 +34,7 @@ int main(int argc, char* argv[]) {
 
   {
     printf("-- create & delete a command\n");
-    struct redis_command* cmd = redis_command_create(NULL, 10);
+    struct command* cmd = command_create(NULL, 10);
     check_counts(1, 1); // the args aren't resources
     test_assert(cmd->external_arg_data == 0);
     test_assert(cmd->num_args == 10);
@@ -49,8 +49,8 @@ int main(int argc, char* argv[]) {
 
     struct evbuffer* buf = evbuffer_new();
     evbuffer_add(buf, command_string, strlen(command_string));
-    struct redis_command_parser* parser = redis_command_parser_create(NULL);
-    struct redis_command* cmd = redis_command_parser_continue(parser, parser, buf);
+    struct command_parser* parser = command_parser_create(NULL);
+    struct command* cmd = command_parser_continue(parser, parser, buf);
     evbuffer_free(buf);
 
     // check that the args were parsed properly
@@ -65,7 +65,7 @@ int main(int argc, char* argv[]) {
 
     // check that the serialization matches the original command
     buf = evbuffer_new();
-    redis_write_command(buf, cmd);
+    command_write(buf, cmd);
     struct evbuffer_ptr pos = evbuffer_search(buf, command_string, strlen(command_string), NULL);
     test_assert(pos.pos == 0);
 
@@ -81,8 +81,8 @@ int main(int argc, char* argv[]) {
 
     struct evbuffer* buf = evbuffer_new();
     evbuffer_add(buf, command_string, strlen(command_string));
-    struct redis_command_parser* parser = redis_command_parser_create(NULL);
-    struct redis_command* cmd = redis_command_parser_continue(parser, parser, buf);
+    struct command_parser* parser = command_parser_create(NULL);
+    struct command* cmd = command_parser_continue(parser, parser, buf);
     evbuffer_free(buf);
 
     // check that the args were parsed properly
@@ -97,7 +97,7 @@ int main(int argc, char* argv[]) {
 
     // check that the serialization matches the original command
     buf = evbuffer_new();
-    redis_write_command(buf, cmd);
+    command_write(buf, cmd);
     struct evbuffer_ptr pos = evbuffer_search(buf, expected_serialization, strlen(expected_serialization), NULL);
     test_assert(pos.pos == 0);
 
@@ -112,8 +112,8 @@ int main(int argc, char* argv[]) {
 
     struct evbuffer* buf = evbuffer_new();
     evbuffer_add(buf, resp_string, strlen(resp_string));
-    struct redis_response_parser* parser = redis_response_parser_create(NULL);
-    struct redis_response* r = redis_response_parser_continue(parser, parser, buf);
+    struct response_parser* parser = response_parser_create(NULL);
+    struct response* r = response_parser_continue(parser, parser, buf);
     evbuffer_free(buf);
 
     test_assert(r->response_type == RESPONSE_MULTI);
@@ -142,7 +142,7 @@ int main(int argc, char* argv[]) {
     test_assert(!memcmp(r->multi_value.fields[5]->multi_value.fields[0]->data_value.data, "To be or not to be, ", 20));
 
     buf = evbuffer_new();
-    redis_write_response(buf, r);
+    response_write(buf, r);
     struct evbuffer_ptr pos = evbuffer_search(buf, resp_string, strlen(resp_string), NULL);
     test_assert(pos.pos == 0);
     evbuffer_free(buf);
@@ -154,29 +154,29 @@ int main(int argc, char* argv[]) {
   {
     printf("-- make sure response_printf behaves correctly\n");
 
-    struct redis_response* resp = redis_response_printf(NULL, RESPONSE_STATUS,
+    struct response* resp = response_printf(NULL, RESPONSE_STATUS,
         "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
     const char* expected_string1 = "+This is response 4 of 10; here\'s a string: lol.";
     struct evbuffer* buf = evbuffer_new();
-    redis_write_response(buf, resp);
+    response_write(buf, resp);
     test_assert(evbuffer_search(buf, expected_string1, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
     resource_delete_ref(NULL, resp);
 
-    resp = redis_response_printf(NULL, RESPONSE_ERROR,
+    resp = response_printf(NULL, RESPONSE_ERROR,
         "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
     const char* expected_string2 = "-This is response 4 of 10; here\'s a string: lol.";
     buf = evbuffer_new();
-    redis_write_response(buf, resp);
+    response_write(buf, resp);
     test_assert(evbuffer_search(buf, expected_string2, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
     resource_delete_ref(NULL, resp);
 
-    resp = redis_response_printf(NULL, RESPONSE_DATA,
+    resp = response_printf(NULL, RESPONSE_DATA,
         "This is response %d of %d; here\'s a string: %s.", 4, 10, "lol");
     const char* expected_string3 = "$47\r\nThis is response 4 of 10; here\'s a string: lol.\r\n";
     buf = evbuffer_new();
-    redis_write_response(buf, resp);
+    response_write(buf, resp);
     test_assert(evbuffer_search(buf, expected_string3, strlen(expected_string1), NULL).pos == 0)
     evbuffer_free(buf);
     resource_delete_ref(NULL, resp);

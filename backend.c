@@ -5,22 +5,24 @@
 #include <string.h>
 
 #include "debug.h"
-#include "redis_protocol.h"
-#include "redis_backend.h"
+#include "protocol.h"
+#include "backend.h"
 
-static void redis_backend_delete(struct redis_backend* c) {
+static void backend_delete(struct backend* c) {
   // resource abstraction takes care of everything else for us
   if (c->host)
     free(c->host);
   free(c);
 }
 
-struct redis_backend* redis_backend_create(void* resource_parent, const char* host, int port) {
-  struct redis_backend* b = (struct redis_backend*)resource_calloc(
-      resource_parent, sizeof(struct redis_backend), redis_backend_delete);
+struct backend* backend_create(void* resource_parent, const char* host,
+    int port) {
+
+  struct backend* b = (struct backend*)resource_calloc(
+      resource_parent, sizeof(struct backend), backend_delete);
   if (!b)
     return NULL;
-  resource_annotate(b, "redis_backend[%s:%d]", host, port);
+  resource_annotate(b, "backend[%s:%d]", host, port);
 
   if (port == 0) {
     // either the host is actually host:port, or the port is (implied) 6379
@@ -43,31 +45,31 @@ struct redis_backend* redis_backend_create(void* resource_parent, const char* ho
   return b;
 }
 
-struct evbuffer* redis_backend_get_output_buffer(struct redis_backend* b) {
+struct evbuffer* backend_get_output_buffer(struct backend* b) {
   if (!b->bev)
     return NULL;
   return bufferevent_get_output(b->bev);
 }
 
-void redis_backend_print(const struct redis_backend* b, int indent) {
+void backend_print(const struct backend* b, int indent) {
   if (indent < 0)
     indent = -indent;
   else
     print_indent(indent);
 
   if (!b) {
-    printf("redis_backend@NULL");
+    printf("backend@NULL");
     return;
   }
 
-  printf("redis_backend@%p[ctx=%p, host=%s, port=%d, bev=%p, num_commands_sent=%d, num_responses_received=%d, parser=",
+  printf("backend@%p[ctx=%p, host=%s, port=%d, bev=%p, num_commands_sent=%d, num_responses_received=%d, parser=",
       b, b->ctx, b->host, b->port, b->bev, b->num_commands_sent, b->num_responses_received);
-  redis_response_parser_print(b->parser, -(indent + 2));
+  response_parser_print(b->parser, -(indent + 2));
   printf(", wait_chain=[\n");
 
-  struct redis_client_expected_response* e = b->wait_chain_head;
+  struct client_expected_response* e = b->wait_chain_head;
   for (; e; e = e->next_wait) {
-    redis_client_expected_response_print(e, indent + 1);
+    client_expected_response_print(e, indent + 1);
     printf(",\n");
   }
 
@@ -75,8 +77,8 @@ void redis_backend_print(const struct redis_backend* b, int indent) {
   printf("]]");
 }
 
-void redis_backend_add_waiting_client(struct redis_backend* b,
-    struct redis_client_expected_response* e) {
+void backend_add_waiting_client(struct backend* b,
+    struct client_expected_response* e) {
 
   if (b->wait_chain_head == NULL) {
     b->wait_chain_head = e;
@@ -88,18 +90,18 @@ void redis_backend_add_waiting_client(struct redis_backend* b,
   resource_add_ref(b, e);
 }
 
-struct redis_client_expected_response* redis_backend_peek_waiting_client(
-    struct redis_backend* b) {
+struct client_expected_response* backend_peek_waiting_client(
+    struct backend* b) {
   return b->wait_chain_head;
 }
 
-struct redis_client_expected_response* redis_backend_get_waiting_client(
-    struct redis_backend* b) {
+struct client_expected_response* backend_get_waiting_client(
+    struct backend* b) {
 
   if (!b->wait_chain_head)
     return NULL;
 
-  struct redis_client_expected_response* e = b->wait_chain_head;
+  struct client_expected_response* e = b->wait_chain_head;
   b->wait_chain_head = b->wait_chain_head->next_wait;
   if (b->wait_chain_head == NULL)
     b->wait_chain_tail = NULL;

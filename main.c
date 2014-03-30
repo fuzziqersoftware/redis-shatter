@@ -12,7 +12,7 @@
 #include "debug.h"
 #include "network.h"
 
-#include "redis_proxy.h"
+#include "proxy.h"
 
 
 
@@ -37,6 +37,31 @@ static void free_options(struct options* opt) {
   if (opt->backend_netlocs)
     free(opt->backend_netlocs);
   free(opt);
+}
+
+static void print_options(struct options* opt) {
+  printf("proxy configuration:\n");
+  printf("  worker processes     : %d\n", opt->num_processes);
+
+  if (opt->listen_addr)
+    printf("  service address      : %s\n", opt->listen_addr);
+  else
+    printf("  service address      : NULL\n");
+  printf("  service port         : %d\n", opt->port);
+  printf("  inherited socket     : %d\n", opt->listen_fd);
+
+  int x;
+  for (x = 0; x < opt->num_backends; x++)
+    printf("  backend              : %s\n", opt->backend_netlocs[x]);
+
+  if (opt->hash_begin_delimiter)
+    printf("  hash begin delimiter : %c\n", opt->hash_begin_delimiter);
+  else
+    printf("  hash begin delimiter : NULL\n");
+  if (opt->hash_end_delimiter)
+    printf("  hash end delimiter   : %c\n", opt->hash_end_delimiter);
+  else
+    printf("  hash end delimiter   : NULL\n");
 }
 
 // yay mutual recursion
@@ -132,9 +157,15 @@ int main(int argc, char **argv) {
   struct options* opt = (struct options*)resource_calloc(NULL,
       sizeof(struct options), free_options);
   opt->num_processes = 1;
-  opt->port = DEFAULT_REDIS_PORT;
+  opt->port = -1;
   opt->listen_fd = -1;
   execute_options_from_command_line(opt, argc, argv);
+
+  if (opt->port == -1)
+    opt->port = DEFAULT_REDIS_PORT;
+
+  // print parsed options
+  print_options(opt);
 
   // sanity-check options
   if (opt->num_bad_arguments)
@@ -202,7 +233,7 @@ int main(int argc, char **argv) {
   }
 
   // create the proxy and serve
-  struct redis_proxy* proxy = redis_proxy_create(NULL, opt->listen_fd,
+  struct proxy* proxy = proxy_create(NULL, opt->listen_fd,
       (const char**)opt->backend_netlocs, opt->num_backends,
       opt->hash_begin_delimiter, opt->hash_end_delimiter);
   if (!proxy) {
@@ -213,7 +244,7 @@ int main(int argc, char **argv) {
   proxy->process_num = opt->process_num;
 
   printf("ready for connections\n");
-  redis_proxy_serve(proxy);
+  proxy_serve(proxy);
 
   resource_delete_ref(NULL, proxy);
   resource_delete_ref(NULL, opt);

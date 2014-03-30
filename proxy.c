@@ -13,25 +13,24 @@
 #include "debug.h"
 #include "network.h"
 #include "resource.h"
-#include "redis_protocol.h"
-#include "redis_backend.h"
-#include "redis_client.h"
-#include "redis_proxy.h"
+#include "protocol.h"
+#include "backend.h"
+#include "client.h"
+#include "proxy.h"
 
 
 
 ////////////////////////////////////////////////////////////////////////////////
 // forward declarations for event callbacks
 
-static void redis_proxy_on_client_input(struct bufferevent *bev, void *ctx);
-static void redis_proxy_on_client_error(struct bufferevent *bev, short events,
+static void proxy_on_client_input(struct bufferevent *bev, void *ctx);
+static void proxy_on_client_error(struct bufferevent *bev, short events,
     void *ctx);
-static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx);
-static void redis_proxy_on_backend_error(struct bufferevent *bev, short events,
+static void proxy_on_backend_input(struct bufferevent *bev, void *ctx);
+static void proxy_on_backend_error(struct bufferevent *bev, short events,
     void *ctx);
-static void redis_proxy_on_listen_error(struct evconnlistener *listener,
-    void *ctx);
-static void redis_proxy_on_client_accept(struct evconnlistener *listener,
+static void proxy_on_listen_error(struct evconnlistener *listener, void *ctx);
+static void proxy_on_client_accept(struct evconnlistener *listener,
     evutil_socket_t fd, struct sockaddr *address, int socklen, void *ctx);
 
 
@@ -39,7 +38,7 @@ static void redis_proxy_on_client_accept(struct evconnlistener *listener,
 ////////////////////////////////////////////////////////////////////////////////
 // backend helpers
 
-static int redis_parse_integer_field(const char* arg_data, int size, int64_t* value) {
+static int parse_integer_field(const char* arg_data, int size, int64_t* value) {
   *value = 0;
   int x;
   for (x = 0; x < size; x++) {
@@ -50,13 +49,13 @@ static int redis_parse_integer_field(const char* arg_data, int size, int64_t* va
   return 1;
 }
 
-static int redis_index_for_key_simple(const struct redis_proxy* proxy,
+static int proxy_index_for_key_simple(const struct proxy* proxy,
     const void* key, int64_t size) {
   return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_begin_delimiter(
-    const struct redis_proxy* proxy, const void* _key, int64_t size) {
+static int proxy_index_for_key_with_begin_delimiter(const struct proxy* proxy,
+    const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
   const char* key_end = (const char*)key + size;
@@ -69,8 +68,8 @@ static int redis_index_for_key_with_begin_delimiter(
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_end_delimiter(
-    const struct redis_proxy* proxy, const void* _key, int64_t size) {
+static int proxy_index_for_key_with_end_delimiter(const struct proxy* proxy,
+    const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
   const char* key_end = (const char*)key + size;
@@ -83,7 +82,7 @@ static int redis_index_for_key_with_end_delimiter(
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-static int redis_index_for_key_with_delimiters(const struct redis_proxy* proxy,
+static int proxy_index_for_key_with_delimiters(const struct proxy* proxy,
     const void* _key, int64_t size) {
 
   const char* key = (const char*)_key;
@@ -103,7 +102,7 @@ static int redis_index_for_key_with_delimiters(const struct redis_proxy* proxy,
     return ketama_server_for_key(proxy->ketama, key, size);
 }
 
-void redis_proxy_connect_backend(struct redis_proxy* proxy, int index) {
+void proxy_connect_backend(struct proxy* proxy, int index) {
   int fd = network_connect(proxy->backends[index]->host,
       proxy->backends[index]->port);
   if (fd < 0) {
@@ -125,95 +124,94 @@ void redis_proxy_connect_backend(struct redis_proxy* proxy, int index) {
   network_get_socket_addresses(fd, &proxy->backends[index]->local,
       &proxy->backends[index]->remote);
 
-  bufferevent_setcb(proxy->backends[index]->bev, redis_proxy_on_backend_input,
-      NULL, redis_proxy_on_backend_error, proxy->backends[index]);
+  bufferevent_setcb(proxy->backends[index]->bev, proxy_on_backend_input,
+      NULL, proxy_on_backend_error, proxy->backends[index]);
   bufferevent_enable(proxy->backends[index]->bev, EV_READ | EV_WRITE);
 }
 
-static struct redis_backend* redis_backend_for_index(struct redis_proxy* proxy,
-    int index) {
+static struct backend* proxy_backend_for_index(struct proxy* proxy, int index) {
 
   if (!proxy->backends[index]->bev)
-    redis_proxy_connect_backend(proxy, index);
+    proxy_connect_backend(proxy, index);
   return proxy->backends[index];
 }
 
-static struct redis_backend* redis_backend_for_key(struct redis_proxy* proxy,
-    void* key, int64_t size) {
-  return redis_backend_for_index(proxy, proxy->index_for_key(proxy, key, size));
+static struct backend* proxy_backend_for_key(struct proxy* proxy, void* key,
+    int64_t size) {
+  return proxy_backend_for_index(proxy, proxy->index_for_key(proxy, key, size));
 }
 
-static int redis_proxy_try_send_backend_command(struct redis_backend* b,
-    struct redis_client_expected_response* e, struct redis_command* cmd) {
+static int proxy_try_send_backend_command(struct backend* b,
+    struct client_expected_response* e, struct command* cmd) {
 
   if (e->error_response)
     return 1;
 
   if (!b) {
-    e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+    e->error_response = response_printf(e, RESPONSE_ERROR,
         "CHANNELERROR backend is missing");
     return 2;
   }
 
-  struct evbuffer* out = redis_backend_get_output_buffer(b);
+  struct evbuffer* out = backend_get_output_buffer(b);
   if (!out) {
-    e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+    e->error_response = response_printf(e, RESPONSE_ERROR,
         "CHANNELERROR backend is not connected");
     return 3;
   }
-  redis_write_command(out, cmd);
-  redis_backend_add_waiting_client(b, e);
+  command_write(out, cmd);
+  backend_add_waiting_client(b, e);
 
-  struct redis_proxy* proxy = (struct redis_proxy*)e->client->ctx;
+  struct proxy* proxy = (struct proxy*)e->client->ctx;
   b->num_commands_sent++;
   proxy->num_commands_sent++;
   e->num_responses_expected++;
   return 0;
 }
 
-static int redis_proxy_send_client_response(struct redis_client* c,
-    const struct redis_response* resp) {
+static int proxy_send_client_response(struct client* c,
+    const struct response* resp) {
 
-  struct evbuffer* out = redis_client_get_output_buffer(c);
+  struct evbuffer* out = client_get_output_buffer(c);
   if (!out) {
     printf("warning: tried to send response to client with no output buffer\n");
     return 2;
   }
-  redis_write_response(out, resp);
+  response_write(out, resp);
 
-  struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
+  struct proxy* proxy = (struct proxy*)c->ctx;
   c->num_responses_sent++;
   proxy->num_responses_sent++;
   return 0;
 }
 
-static int redis_proxy_send_client_string_response(struct redis_client* c,
+static int proxy_send_client_string_response(struct client* c,
     const char* string, int response_type) {
 
-  struct evbuffer* out = redis_client_get_output_buffer(c);
+  struct evbuffer* out = client_get_output_buffer(c);
   if (!out) {
     printf("warning: tried to send response to client with no output buffer\n");
     return 2;
   }
-  redis_write_string_response(out, string, response_type);
+  response_write_string(out, string, response_type);
 
-  struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
+  struct proxy* proxy = (struct proxy*)c->ctx;
   c->num_responses_sent++;
   proxy->num_responses_sent++;
   return 0;
 }
 
-static int redis_proxy_send_client_int_response(struct redis_client* c,
-    int64_t int_value, int response_type) {
+static int proxy_send_client_int_response(struct client* c, int64_t int_value,
+    int response_type) {
 
-  struct evbuffer* out = redis_client_get_output_buffer(c);
+  struct evbuffer* out = client_get_output_buffer(c);
   if (!out) {
     printf("warning: tried to send response to client with no output buffer\n");
     return 2;
   }
-  redis_write_int_response(out, int_value, response_type);
+  response_write_int(out, int_value, response_type);
 
-  struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
+  struct proxy* proxy = (struct proxy*)c->ctx;
   c->num_responses_sent++;
   proxy->num_responses_sent++;
   return 0;
@@ -224,7 +222,7 @@ static int redis_proxy_send_client_int_response(struct redis_client* c,
 ////////////////////////////////////////////////////////////////////////////////
 // creation/deletion
 
-static void redis_proxy_delete(struct redis_proxy* proxy) {
+static void proxy_delete(struct proxy* proxy) {
   if (proxy->listener)
     evconnlistener_free(proxy->listener);
   if (proxy->base)
@@ -232,26 +230,26 @@ static void redis_proxy_delete(struct redis_proxy* proxy) {
   free(proxy);
 }
 
-struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
+struct proxy* proxy_create(void* resource_parent, int listen_fd,
     const char** netlocs, int num_backends, char hash_begin_delimiter,
     char hash_end_delimiter) {
 
-  struct redis_proxy* proxy = (struct redis_proxy*)resource_calloc(
-      resource_parent, sizeof(struct redis_proxy), redis_proxy_delete);
+  struct proxy* proxy = (struct proxy*)resource_calloc(
+      resource_parent, sizeof(struct proxy), proxy_delete);
   if (!proxy) {
     resource_delete_ref(resource_parent, proxy);
     return NULL;
   }
 
-  resource_annotate(proxy, "redis_proxy[%d]", listen_fd);
+  resource_annotate(proxy, "proxy[%d]", listen_fd);
   proxy->listen_fd = listen_fd;
   proxy->ketama = ketama_continuum_create(proxy, num_backends, netlocs);
   proxy->num_backends = num_backends;
   proxy->hash_begin_delimiter = hash_begin_delimiter;
   proxy->hash_end_delimiter = hash_end_delimiter;
 
-  proxy->backends = (struct redis_backend**)resource_calloc(proxy,
-      sizeof(struct redis_backend*) * num_backends, free);
+  proxy->backends = (struct backend**)resource_calloc(proxy,
+      sizeof(struct backend*) * num_backends, free);
   if (!proxy->backends) {
     resource_delete_ref(resource_parent, proxy);
     return NULL;
@@ -265,29 +263,29 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
 
   evutil_make_socket_nonblocking(listen_fd);
   proxy->listener = evconnlistener_new(proxy->base,
-      redis_proxy_on_client_accept, proxy, LEV_OPT_REUSEABLE, 0, listen_fd);
+      proxy_on_client_accept, proxy, LEV_OPT_REUSEABLE, 0, listen_fd);
   if (!proxy->listener) {
     resource_delete_ref(resource_parent, proxy);
     return NULL;
   }
-  evconnlistener_set_error_cb(proxy->listener, redis_proxy_on_listen_error);
+  evconnlistener_set_error_cb(proxy->listener, proxy_on_listen_error);
 
   if (proxy->hash_begin_delimiter && proxy->hash_end_delimiter)
-    proxy->index_for_key = redis_index_for_key_with_delimiters;
+    proxy->index_for_key = proxy_index_for_key_with_delimiters;
   else if (proxy->hash_begin_delimiter)
-    proxy->index_for_key = redis_index_for_key_with_begin_delimiter;
+    proxy->index_for_key = proxy_index_for_key_with_begin_delimiter;
   else if (proxy->hash_end_delimiter)
-    proxy->index_for_key = redis_index_for_key_with_end_delimiter;
+    proxy->index_for_key = proxy_index_for_key_with_end_delimiter;
   else
-    proxy->index_for_key = redis_index_for_key_simple;
+    proxy->index_for_key = proxy_index_for_key_simple;
 
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
-    proxy->backends[x] = redis_backend_create(proxy, netlocs[x], 0);
+    proxy->backends[x] = backend_create(proxy, netlocs[x], 0);
     if (!proxy->backends[x])
       printf("proxy: can\'t add backend %s\n", netlocs[x]);
     else {
-      redis_proxy_connect_backend(proxy, x);
+      proxy_connect_backend(proxy, x);
       proxy->backends[x]->ctx = proxy;
     }
   }
@@ -295,18 +293,18 @@ struct redis_proxy* redis_proxy_create(void* resource_parent, int listen_fd,
   return proxy;
 }
 
-void redis_proxy_serve(struct redis_proxy* proxy) {
+void proxy_serve(struct proxy* proxy) {
   proxy->start_time = time(NULL);
   event_base_dispatch(proxy->base);
 
-  // hack to make gcc not think redis_proxy_print is dead code and delete it -
+  // hack to make gcc not think proxy_print is dead code and delete it -
   // it's really useful to call when using gdb
   volatile int debug = 0;
   if (debug)
-    redis_proxy_print(proxy, 0);
+    proxy_print(proxy, 0);
 }
 
-void redis_proxy_print(const struct redis_proxy* proxy, int indent) {
+void proxy_print(const struct proxy* proxy, int indent) {
   int x;
   if (indent < 0)
     indent = -indent;
@@ -314,25 +312,25 @@ void redis_proxy_print(const struct redis_proxy* proxy, int indent) {
     print_indent(indent);
 
   if (!proxy) {
-    printf("redis_proxy@NULL");
+    printf("proxy@NULL");
     return;
   }
 
-  printf("redis_proxy@%p[base=%p, listener=%p, listen_fd=%d, ketama=%p, num_clients=%d, io_counts=[%d, %d, %d, %d], clients=[\n",
+  printf("proxy@%p[base=%p, listener=%p, listen_fd=%d, ketama=%p, num_clients=%d, io_counts=[%d, %d, %d, %d], clients=[\n",
       proxy, proxy->base, proxy->listener, proxy->listen_fd, proxy->ketama, proxy->num_clients,
       proxy->num_commands_received, proxy->num_commands_sent, proxy->num_responses_received, proxy->num_responses_sent);
 
-  struct redis_client* c;
+  struct client* c;
   for (c = proxy->client_chain_head; c; c = c->next) {
     printf("\n");
-    redis_client_print(c, indent + 1);
+    client_print(c, indent + 1);
     printf(",");
   }
 
   printf("], backends=[");
   for (x = 0; x < proxy->num_backends; x++) {
     printf("\n");
-    redis_backend_print(proxy->backends[x], indent + 1);
+    backend_print(proxy->backends[x], indent + 1);
     printf(",");
   }
 
@@ -345,32 +343,32 @@ void redis_proxy_print(const struct redis_proxy* proxy, int indent) {
 ////////////////////////////////////////////////////////////////////////////////
 // response function implementations
 
-void redis_proxy_complete_response(struct redis_client_expected_response* e) {
+void proxy_complete_response(struct client_expected_response* e) {
 
   if (e->error_response) {
-    redis_proxy_send_client_response(e->client, e->error_response);
+    proxy_send_client_response(e->client, e->error_response);
     return;
   }
 
   switch (e->wait_type) {
 
     case CWAIT_FORWARD_RESPONSE:
-      redis_proxy_send_client_response(e->client, e->response_to_forward);
+      proxy_send_client_response(e->client, e->response_to_forward);
       break;
 
     case CWAIT_COLLECT_STATUS_RESPONSES:
-      redis_proxy_send_client_string_response(e->client, "OK", RESPONSE_STATUS);
+      proxy_send_client_string_response(e->client, "OK", RESPONSE_STATUS);
       break;
 
     case CWAIT_SUM_INT_RESPONSES:
-      redis_proxy_send_client_int_response(e->client, e->int_sum, RESPONSE_INTEGER);
+      proxy_send_client_int_response(e->client, e->int_sum, RESPONSE_INTEGER);
       break;
 
     case CWAIT_COMBINE_MULTI_RESPONSES: {
       int x, y, num_fields = 0;
       for (x = 0; x < e->collect_multi.num_responses; x++) {
         if (e->collect_multi.responses[x]->response_type != RESPONSE_MULTI) {
-          redis_proxy_send_client_string_response(e->client,
+          proxy_send_client_string_response(e->client,
               "CHANNELERROR an upstream server returned a result of the wrong type", RESPONSE_ERROR);
           break;
         } else
@@ -379,11 +377,10 @@ void redis_proxy_complete_response(struct redis_client_expected_response* e) {
       if (x < e->collect_multi.num_responses)
         break;
 
-      struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
-          num_fields);
+      struct response* resp = response_create(e, RESPONSE_MULTI, num_fields);
       resp->multi_value.num_fields = 0;
       for (x = 0; x < e->collect_multi.num_responses; x++) {
-        struct redis_response* current = e->collect_multi.responses[x];
+        struct response* current = e->collect_multi.responses[x];
         if (current->multi_value.num_fields <= 0)
           continue; // probably a null reply... redis doesn't give these but w/e
         for (y = 0; y < current->multi_value.num_fields; y++) {
@@ -391,38 +388,38 @@ void redis_proxy_complete_response(struct redis_client_expected_response* e) {
           resp->multi_value.num_fields++;
         }
       }
-      redis_proxy_send_client_response(e->client, resp);
+      proxy_send_client_response(e->client, resp);
       resource_delete_ref(e, resp);
       break; }
 
     case CWAIT_COLLECT_RESPONSES: {
-      struct redis_response* resp = redis_response_create(e, RESPONSE_MULTI,
+      struct response* resp = response_create(e, RESPONSE_MULTI,
           e->collect_multi.num_responses);
       int x;
       for (x = 0; x < e->collect_multi.num_responses; x++) {
-        struct redis_response* current = e->collect_multi.responses[x];
+        struct response* current = e->collect_multi.responses[x];
         if (!current) {
-          resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_ERROR,
+          resp->multi_value.fields[x] = response_printf(resp, RESPONSE_ERROR,
               "CHANNELERROR an upstream server returned a bad response");
         } else {
           resp->multi_value.fields[x] = current;
           resource_add_ref(resp, current);
         }
       }
-      redis_proxy_send_client_response(e->client, resp);
+      proxy_send_client_response(e->client, resp);
       resource_delete_ref(e, resp);
       break; }
 
     case CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY:
-      redis_proxy_send_client_response(e->client, e->collect_key.response_in_progress);
+      proxy_send_client_response(e->client, e->collect_key.response_in_progress);
       break;
 
     case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
       int x;
       for (x = 0; x < e->collect_multi.num_responses; x++) {
-        if (!redis_responses_equal(e->collect_multi.responses[x],
+        if (!responses_equal(e->collect_multi.responses[x],
             e->collect_multi.responses[0])) {
-          redis_proxy_send_client_string_response(e->client,
+          proxy_send_client_string_response(e->client,
               "CHANNELERROR backends did not return identical results", RESPONSE_ERROR);
           break;
         }
@@ -430,26 +427,26 @@ void redis_proxy_complete_response(struct redis_client_expected_response* e) {
       if (e->error_response)
         break;
 
-      redis_proxy_send_client_response(e->client, e->collect_multi.responses[0]);
+      proxy_send_client_response(e->client, e->collect_multi.responses[0]);
       break; }
 
     default:
-      redis_proxy_send_client_string_response(e->client,
+      proxy_send_client_string_response(e->client,
           "PROXYERROR invalid wait type on response completion", RESPONSE_ERROR);
   }
 }
 
-void redis_proxy_process_client_response_chain(struct redis_client* c) {
+void proxy_process_client_response_chain(struct client* c) {
   while (c->response_chain_head && (c->response_chain_head->num_responses_expected == 0)) {
-    redis_proxy_complete_response(c->response_chain_head);
-    redis_client_remove_expected_response(c);
+    proxy_complete_response(c->response_chain_head);
+    client_remove_expected_response(c);
   }
 }
 
-void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
-    struct redis_backend* b, struct redis_response* r) {
+void proxy_handle_backend_response(struct proxy* proxy, struct backend* b,
+    struct response* r) {
 
-  struct redis_client_expected_response* e = redis_backend_get_waiting_client(b);
+  struct client_expected_response* e = backend_get_waiting_client(b);
   if (!e) {
     printf("error: received response from backend with no waiting client\n");
     return;
@@ -466,13 +463,13 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
 
       case CWAIT_COLLECT_STATUS_RESPONSES:
         if (r->response_type != RESPONSE_STATUS)
-          e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+          e->error_response = response_printf(e, RESPONSE_ERROR,
               "CHANNELERROR an upstream server returned a result of the wrong type");
         break;
 
       case CWAIT_SUM_INT_RESPONSES:
         if (r->response_type != RESPONSE_INTEGER)
-          e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+          e->error_response = response_printf(e, RESPONSE_ERROR,
               "CHANNELERROR an upstream server returned a result of the wrong type");
         else
           e->int_sum += r->int_value;
@@ -489,10 +486,10 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
       case CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY: {
 
         if (!e->collect_key.response_in_progress)
-          e->collect_key.response_in_progress = redis_response_create(e,
+          e->collect_key.response_in_progress = response_create(e,
               RESPONSE_MULTI, e->collect_key.num_keys);
         if (!e->collect_key.response_in_progress) {
-          e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+          e->error_response = response_printf(e, RESPONSE_ERROR,
               "PROXYERROR can\'t allocate memory");
           break;
         }
@@ -504,14 +501,14 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
             break;
 
         if (!e->collect_key.index_to_command[backend_id]) {
-          e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+          e->error_response = response_printf(e, RESPONSE_ERROR,
               "CHANNELERROR received a response from a server that was not sent a command");
           break;
         }
 
         if (r->response_type != RESPONSE_MULTI ||
             r->multi_value.num_fields != e->collect_key.index_to_command[backend_id]->num_args - 1) {
-          e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+          e->error_response = response_printf(e, RESPONSE_ERROR,
               "CHANNELERROR the command gave a bad result on server %d", backend_id);
           break;
         }
@@ -525,12 +522,12 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
         break; }
 
       default:
-        e->error_response = redis_response_printf(e, RESPONSE_ERROR,
+        e->error_response = response_printf(e, RESPONSE_ERROR,
             "PROXYERROR unknown response wait type");
     }
   }
 
-  redis_proxy_process_client_response_chain(e->client);
+  proxy_process_client_response_chain(e->client);
 }
 
 
@@ -538,98 +535,98 @@ void redis_proxy_handle_backend_response(struct redis_proxy* proxy,
 ////////////////////////////////////////////////////////////////////////////////
 // proxy commands
 
-void redis_command_BACKEND(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_BACKEND(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args != 2) {
-    redis_proxy_send_client_string_response(c, "ERR wrong number of arguments",
+    proxy_send_client_string_response(c, "ERR wrong number of arguments",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_backend* b = redis_backend_for_key(proxy, cmd->args[1].data,
+  struct backend* b = proxy_backend_for_key(proxy, cmd->args[1].data,
       cmd->args[1].size);
 
-  struct redis_response* resp = NULL;
+  struct response* resp = NULL;
   if (b)
-    resp = redis_response_printf(cmd, RESPONSE_DATA, "%s:%d", b->host, b->port);
+    resp = response_printf(cmd, RESPONSE_DATA, "%s:%d", b->host, b->port);
   else
-    resp = redis_response_printf(cmd, RESPONSE_DATA, "NULL");
-  redis_proxy_send_client_response(c, resp);
+    resp = response_printf(cmd, RESPONSE_DATA, "NULL");
+  proxy_send_client_response(c, resp);
   resource_delete_ref(cmd, resp);
 }
 
-void redis_command_BACKENDNUM(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_BACKENDNUM(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args != 2) {
-    redis_proxy_send_client_string_response(c, "ERR wrong number of arguments",
+    proxy_send_client_string_response(c, "ERR wrong number of arguments",
         RESPONSE_ERROR);
     return;
   }
 
   int backend_id = proxy->index_for_key(proxy, cmd->args[1].data,
       cmd->args[1].size);
-  redis_proxy_send_client_int_response(c, backend_id, RESPONSE_INTEGER);
+  proxy_send_client_int_response(c, backend_id, RESPONSE_INTEGER);
 }
 
-void redis_command_BACKENDS(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_BACKENDS(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
-  struct redis_response* resp = redis_response_create(cmd, RESPONSE_MULTI,
+  struct response* resp = response_create(cmd, RESPONSE_MULTI,
       proxy->num_backends);
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
     if (proxy->backends[x])
-      resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_DATA,
+      resp->multi_value.fields[x] = response_printf(resp, RESPONSE_DATA,
           "%s:%d", proxy->backends[x]->host, proxy->backends[x]->port);
     else
-      resp->multi_value.fields[x] = redis_response_printf(resp, RESPONSE_DATA,
+      resp->multi_value.fields[x] = response_printf(resp, RESPONSE_DATA,
           "NULL");
   }
-  redis_proxy_send_client_response(c, resp);
+  proxy_send_client_response(c, resp);
   resource_delete_ref(cmd, resp);
 }
 
-void redis_command_FORWARD(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_FORWARD(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args < 3) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
 
   int64_t x, backend_id;
-  if (!redis_parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
+  if (!parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
       (backend_id < 0 || backend_id >= proxy->num_backends)) {
-    redis_proxy_send_client_string_response(c, "ERR backend id is invalid",
+    proxy_send_client_string_response(c, "ERR backend id is invalid",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+  struct backend* b = proxy_backend_for_index(proxy, backend_id);
   if (!b) {
-    redis_proxy_send_client_string_response(c, "ERR backend does not exist",
+    proxy_send_client_string_response(c, "ERR backend does not exist",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_command* backend_cmd = redis_command_create(cmd, cmd->num_args - 2);
+  struct command* backend_cmd = command_create(cmd, cmd->num_args - 2);
   backend_cmd->external_arg_data = 1;
   for (x = 2; x < cmd->num_args; x++) {
     backend_cmd->args[x - 2].data = cmd->args[x].data;
     backend_cmd->args[x - 2].size = cmd->args[x].size;
   }
 
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, backend_cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, backend_cmd);
+  proxy_try_send_backend_command(b, e, backend_cmd);
   resource_delete_ref(cmd, backend_cmd);
 }
 
-void redis_command_INFO(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_INFO(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   // INFO - return proxy info
   if (cmd->num_args == 1) {
@@ -643,7 +640,7 @@ void redis_command_INFO(struct redis_proxy* proxy, struct redis_client* c,
     else
       sprintf(hash_end_delimiter_str, "NULL");
 
-    struct redis_response* resp = redis_response_printf(cmd, RESPONSE_DATA, "\
+    struct response* resp = response_printf(cmd, RESPONSE_DATA, "\
 num_commands_received:%d\n\
 num_commands_sent:%d\n\
 num_responses_received:%d\n\
@@ -666,7 +663,7 @@ hash_end_delimiter:%s\n\
         proxy->start_time, (time(NULL) - proxy->start_time), resource_count(),
         resource_refcount(), getpid(), proxy->process_num, proxy->num_processes,
         hash_begin_delimiter_str, hash_end_delimiter_str);
-    redis_proxy_send_client_response(c, resp);
+    proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
     return;
   }
@@ -675,21 +672,21 @@ hash_end_delimiter:%s\n\
   if ((cmd->num_args == 3) && (cmd->args[1].size == 7) &&
       !memcmp(cmd->args[1].data, "BACKEND", 7)) {
     int64_t backend_id;
-    if (!redis_parse_integer_field(cmd->args[2].data, cmd->args[2].size, &backend_id) ||
+    if (!parse_integer_field(cmd->args[2].data, cmd->args[2].size, &backend_id) ||
         (backend_id < 0 || backend_id >= proxy->num_backends)) {
-      redis_proxy_send_client_string_response(c, "ERR backend id is invalid",
+      proxy_send_client_string_response(c, "ERR backend id is invalid",
           RESPONSE_ERROR);
       return;
     }
 
-    struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
+    struct backend* b = proxy_backend_for_index(proxy, backend_id);
     if (!b) {
-      redis_proxy_send_client_string_response(c, "ERR backend does not exist",
+      proxy_send_client_string_response(c, "ERR backend does not exist",
           RESPONSE_ERROR);
       return;
     }
 
-    struct redis_response* resp = redis_response_printf(cmd, RESPONSE_DATA, "\
+    struct response* resp = response_printf(cmd, RESPONSE_DATA, "\
 name:%s\n\
 host:%s\n\
 port:%d\n\
@@ -698,7 +695,7 @@ num_commands_sent:%d\n\
 num_responses_received:%d\n\
 ", b->name, b->host, b->port, (b->bev ? 1 : 0), b->num_commands_sent,
         b->num_responses_received);
-    redis_proxy_send_client_response(c, resp);
+    proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
     return;
   }
@@ -707,14 +704,14 @@ num_responses_received:%d\n\
   // INFO num section - return info from backend server
 
   int64_t x, backend_id;
-  if (!redis_parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
+  if (!parse_integer_field(cmd->args[1].data, cmd->args[1].size, &backend_id) ||
       (backend_id < 0 || backend_id >= proxy->num_backends)) {
-    redis_proxy_send_client_string_response(c, "ERR backend id is invalid",
+    proxy_send_client_string_response(c, "ERR backend id is invalid",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_command* backend_cmd = redis_command_create(cmd, cmd->num_args - 1);
+  struct command* backend_cmd = command_create(cmd, cmd->num_args - 1);
   backend_cmd->external_arg_data = 1;
   backend_cmd->args[0].data = cmd->args[0].data;
   backend_cmd->args[0].size = cmd->args[0].size;
@@ -723,35 +720,35 @@ num_responses_received:%d\n\
     backend_cmd->args[x - 1].size = cmd->args[x].size;
   }
 
-  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct backend* b = proxy_backend_for_index(proxy, backend_id);
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, backend_cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, backend_cmd);
+  proxy_try_send_backend_command(b, e, backend_cmd);
   resource_delete_ref(cmd, backend_cmd);
 }
 
-void redis_command_PING(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
-  redis_proxy_send_client_string_response(c, "PONG", RESPONSE_STATUS);
+void redis_command_PING(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+  proxy_send_client_string_response(c, "PONG", RESPONSE_STATUS);
 }
 
-void redis_command_ECHO(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_ECHO(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args != 2) {
-    redis_proxy_send_client_string_response(c, "ERR wrong number of arguments",
+    proxy_send_client_string_response(c, "ERR wrong number of arguments",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_response* resp = redis_response_create(cmd, RESPONSE_DATA,
+  struct response* resp = response_create(cmd, RESPONSE_DATA,
       cmd->args[1].size);
   if (!resp)
-    redis_proxy_send_client_string_response(c,
+    proxy_send_client_string_response(c,
         "PROXYERROR can\'t allocate memory", RESPONSE_ERROR);
   else {
     memcpy(resp->data_value.data, cmd->args[1].data, cmd->args[1].size);
-    redis_proxy_send_client_response(c, resp);
+    proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
   }
 }
@@ -761,26 +758,25 @@ void redis_command_ECHO(struct redis_proxy* proxy, struct redis_client* c,
 ////////////////////////////////////////////////////////////////////////////////
 // command function implementations
 
-void redis_command_partition_by_keys(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd, int args_per_key,
-    int wait_type) {
+void redis_command_partition_by_keys(struct proxy* proxy, struct client* c,
+    struct command* cmd, int args_per_key, int wait_type) {
 
   if ((cmd->num_args - 1) % args_per_key != 0) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
 
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
-      wait_type, cmd, proxy->num_backends);
+  struct client_expected_response* e = client_expect_response(c, wait_type, cmd,
+      proxy->num_backends);
 
   e->collect_key.args_per_key = args_per_key;
   e->collect_key.num_keys = (cmd->num_args - 1) / e->collect_key.args_per_key;
   e->collect_key.server_to_key_count = (int*)resource_calloc_raw(e, sizeof(int) * proxy->num_backends, free);
   e->collect_key.key_to_server = (uint8_t*)resource_calloc_raw(e, sizeof(uint8_t) * e->collect_key.num_keys, free);
-  e->collect_key.index_to_command = (struct redis_command**)resource_calloc_raw(e, sizeof(struct redis_command*) * proxy->num_backends, free);
+  e->collect_key.index_to_command = (struct command**)resource_calloc_raw(e, sizeof(struct command*) * proxy->num_backends, free);
   if (!e->collect_key.server_to_key_count || !e->collect_key.key_to_server || !e->collect_key.index_to_command) {
-    e->error_response = redis_response_printf(e, RESPONSE_ERROR, "PROXYERROR can\'t allocate memory");
+    e->error_response = response_printf(e, RESPONSE_ERROR, "PROXYERROR can\'t allocate memory");
     return;
   }
 
@@ -795,7 +791,7 @@ void redis_command_partition_by_keys(struct redis_proxy* proxy,
   for (x = 0; x < proxy->num_backends; x++) {
     if (e->collect_key.server_to_key_count[x] == 0)
       continue;
-    e->collect_key.index_to_command[x] = redis_command_create(e,
+    e->collect_key.index_to_command[x] = command_create(e,
         (e->collect_key.server_to_key_count[x] * e->collect_key.args_per_key) + 1);
     e->collect_key.index_to_command[x]->external_arg_data = 1;
     e->collect_key.index_to_command[x]->num_args = 1;
@@ -805,7 +801,7 @@ void redis_command_partition_by_keys(struct redis_proxy* proxy,
 
   for (y = 0; y < e->collect_key.num_keys; y++) {
     int server = e->collect_key.key_to_server[y];
-    struct redis_command* server_cmd = e->collect_key.index_to_command[server];
+    struct command* server_cmd = e->collect_key.index_to_command[server];
     int src_arg_index = (y * e->collect_key.args_per_key) + 1;
     for (x = 0; x < e->collect_key.args_per_key; x++) {
       server_cmd->args[server_cmd->num_args + x].data = cmd->args[src_arg_index + x].data;
@@ -818,53 +814,52 @@ void redis_command_partition_by_keys(struct redis_proxy* proxy,
   for (x = 0; x < proxy->num_backends; x++) {
     if (!e->collect_key.index_to_command[x])
       continue;
-    redis_proxy_try_send_backend_command(redis_backend_for_index(proxy, x), e,
+    proxy_try_send_backend_command(proxy_backend_for_index(proxy, x), e,
         e->collect_key.index_to_command[x]);
   }
 }
 
-void redis_command_partition_by_keys_1_multi(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_partition_by_keys_1_multi(struct proxy* proxy,
+    struct client* c, struct command* cmd) {
   redis_command_partition_by_keys(proxy, c, cmd, 1, CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY);
 }
 
-void redis_command_partition_by_keys_1_integer(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_partition_by_keys_1_integer(struct proxy* proxy,
+    struct client* c, struct command* cmd) {
   redis_command_partition_by_keys(proxy, c, cmd, 1, CWAIT_SUM_INT_RESPONSES);
 }
 
-void redis_command_partition_by_keys_2_status(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_partition_by_keys_2_status(struct proxy* proxy,
+    struct client* c, struct command* cmd) {
   redis_command_partition_by_keys(proxy, c, cmd, 2, CWAIT_COLLECT_STATUS_RESPONSES);
 }
 
 
-void redis_command_forward_by_key_index(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd, int key_index) {
+void redis_command_forward_by_key_index(struct proxy* proxy,
+    struct client* c, struct command* cmd, int key_index) {
 
   if (key_index >= cmd->num_args)
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
   else {
-    struct redis_backend* b = redis_backend_for_key(proxy, cmd->args[key_index].data, cmd->args[key_index].size);
-    struct redis_client_expected_response* e = redis_client_expect_response(c,
+    struct backend* b = proxy_backend_for_key(proxy, cmd->args[key_index].data, cmd->args[key_index].size);
+    struct client_expected_response* e = client_expect_response(c,
         CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
-    redis_proxy_try_send_backend_command(b, e, cmd);
+    proxy_try_send_backend_command(b, e, cmd);
   }
 }
 
-void redis_command_forward_by_key1(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_forward_by_key1(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   redis_command_forward_by_key_index(proxy, c, cmd, 1);
 }
 
 
-void redis_command_forward_by_keys(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd, int start_key_index,
-    int end_key_index) {
+void redis_command_forward_by_keys(struct proxy* proxy, struct client* c,
+    struct command* cmd, int start_key_index, int end_key_index) {
 
   if (cmd->num_args <= start_key_index) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
@@ -879,49 +874,49 @@ void redis_command_forward_by_keys(struct redis_proxy* proxy,
   for (x = start_key_index + 1; x < end_key_index; x++) {
     if (proxy->index_for_key(proxy, cmd->args[x].data, cmd->args[x].size)
         != backend_id) {
-      redis_proxy_send_client_string_response(c,
+      proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
       return;
     }
   }
 
-  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct backend* b = proxy_backend_for_index(proxy, backend_id);
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, cmd);
+  proxy_try_send_backend_command(b, e, cmd);
 }
 
-void redis_command_forward_by_keys_1(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_forward_by_keys_1(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   redis_command_forward_by_keys(proxy, c, cmd, 1, -1);
 }
 
-void redis_command_forward_by_keys_1_2(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_forward_by_keys_1_2(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   redis_command_forward_by_keys(proxy, c, cmd, 1, 2);
 }
 
-void redis_command_forward_by_keys_2(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_forward_by_keys_2(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   redis_command_forward_by_keys(proxy, c, cmd, 2, -1);
 }
 
-void redis_command_ZACTIONSTORE(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_ZACTIONSTORE(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
-  // this is basically the same as redis_command_forward_by_keys except the
-  // number of checked keys is given in arg 2
+  // this is basically the same as command_forward_by_keys except the number of
+  // checked keys is given in arg 2
 
   if (cmd->num_args <= 3) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
 
   int64_t x, num_keys = 0;
-  if (!redis_parse_integer_field(cmd->args[2].data, cmd->args[2].size, &num_keys) ||
+  if (!parse_integer_field(cmd->args[2].data, cmd->args[2].size, &num_keys) ||
       (num_keys < 1 || num_keys > cmd->num_args - 3)) {
-    redis_proxy_send_client_string_response(c, "ERR key count is invalid",
+    proxy_send_client_string_response(c, "ERR key count is invalid",
         RESPONSE_ERROR);
     return;
   }
@@ -932,52 +927,52 @@ void redis_command_ZACTIONSTORE(struct redis_proxy* proxy,
   for (x = 0; x < num_keys; x++) {
     if (proxy->index_for_key(proxy, cmd->args[3 + x].data, cmd->args[3 + x].size)
         != backend_id) {
-      redis_proxy_send_client_string_response(c,
+      proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
       return;
     }
   }
 
-  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct backend* b = proxy_backend_for_index(proxy, backend_id);
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, cmd);
+  proxy_try_send_backend_command(b, e, cmd);
 }
 
 
-void redis_command_forward_all(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd, int wait_type) {
+void redis_command_forward_all(struct proxy* proxy, struct client* c,
+    struct command* cmd, int wait_type) {
 
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
-      wait_type, cmd, proxy->num_backends);
+  struct client_expected_response* e = client_expect_response(c, wait_type, cmd,
+      proxy->num_backends);
 
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
 
-    struct redis_backend* b = redis_backend_for_index(proxy, x);
-    redis_proxy_try_send_backend_command(b, e, cmd);
+    struct backend* b = proxy_backend_for_index(proxy, x);
+    proxy_try_send_backend_command(b, e, cmd);
   }
 }
 
-void redis_command_all_collect_responses(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void redis_command_all_collect_responses(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_RESPONSES);
 }
 
 
-void redis_command_EVAL(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_EVAL(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args < 3) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
 
   int64_t x, num_keys = 0;
-  if (!redis_parse_integer_field(cmd->args[2].data, cmd->args[2].size, &num_keys) ||
+  if (!parse_integer_field(cmd->args[2].data, cmd->args[2].size, &num_keys) ||
       (num_keys < 1 || num_keys > cmd->num_args - 3)) {
-    redis_proxy_send_client_string_response(c, "ERR key count is invalid",
+    proxy_send_client_string_response(c, "ERR key count is invalid",
         RESPONSE_ERROR);
     return;
   }
@@ -988,20 +983,20 @@ void redis_command_EVAL(struct redis_proxy* proxy, struct redis_client* c,
   for (x = 1; x < num_keys; x++) {
     if (proxy->index_for_key(proxy, cmd->args[x + 3].data, cmd->args[x + 3].size)
         != backend_id) {
-      redis_proxy_send_client_string_response(c,
+      proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
       return;
     }
   }
 
-  struct redis_backend* b = redis_backend_for_index(proxy, backend_id);
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct backend* b = proxy_backend_for_index(proxy, backend_id);
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, cmd);
+  proxy_try_send_backend_command(b, e, cmd);
 }
 
-void redis_command_SCRIPT(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_SCRIPT(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   // subcommands:
   // EXISTS - not supported (we can't know which server to send the command to)
@@ -1010,7 +1005,7 @@ void redis_command_SCRIPT(struct redis_proxy* proxy, struct redis_client* c,
   // LOAD <script> - forward to all backends, aggregate responses
 
   if (cmd->num_args < 2) {
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
     return;
   }
@@ -1022,79 +1017,79 @@ void redis_command_SCRIPT(struct redis_proxy* proxy, struct redis_client* c,
   else if (cmd->args[1].size == 6 && !memcmp(cmd->args[1].data, "EXISTS", 6))
     redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_RESPONSES);
   else {
-    redis_proxy_send_client_string_response(c,
+    proxy_send_client_string_response(c,
         "PROXYERROR unsupported subcommand", RESPONSE_ERROR);
     return;
   }
 }
 
-void redis_command_KEYS(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_KEYS(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   // CAVEAT EMPTOR: this may double-list incorrectly-distributed keys
   redis_command_forward_all(proxy, c, cmd, CWAIT_COMBINE_MULTI_RESPONSES);
 }
 
-void redis_command_DBSIZE(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_DBSIZE(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   // CAVEAT EMPTOR: keys may exist on single redis instances that don't hash to
   // that instance; they will be counted too
   redis_command_forward_all(proxy, c, cmd, CWAIT_SUM_INT_RESPONSES);
 }
 
-void redis_command_OBJECT(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_OBJECT(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args < 3)
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
   else if (cmd->args[1].size != 8 || (
       memcmp(cmd->args[1].data, "REFCOUNT", 8) &&
       memcmp(cmd->args[1].data, "ENCODING", 8) &&
       memcmp(cmd->args[1].data, "IDLETIME", 8)))
-    redis_proxy_send_client_string_response(c,
+    proxy_send_client_string_response(c,
         "PROXYERROR unsupported subcommand", RESPONSE_ERROR);
   else
     redis_command_forward_by_key_index(proxy, c, cmd, 2);
 }
 
-void redis_command_MIGRATE(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_MIGRATE(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   if (cmd->num_args < 6)
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
   else
     redis_command_forward_by_key_index(proxy, c, cmd, 3);
 }
 
-void redis_command_DEBUG(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_DEBUG(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
   if (cmd->num_args < 3)
-    redis_proxy_send_client_string_response(c, "ERR not enough arguments",
+    proxy_send_client_string_response(c, "ERR not enough arguments",
         RESPONSE_ERROR);
   else if (cmd->args[1].size != 6 || memcmp(cmd->args[1].data, "OBJECT", 6))
-    redis_proxy_send_client_string_response(c,
+    proxy_send_client_string_response(c,
         "PROXYERROR unsupported subcommand", RESPONSE_ERROR);
   else
     redis_command_forward_by_key_index(proxy, c, cmd, 2);
 }
 
-void redis_command_RANDOMKEY(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_RANDOMKEY(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
-  struct redis_backend* b = redis_backend_for_index(proxy, rand() % proxy->num_backends);
-  struct redis_client_expected_response* e = redis_client_expect_response(c,
+  struct backend* b = proxy_backend_for_index(proxy, rand() % proxy->num_backends);
+  struct client_expected_response* e = client_expect_response(c,
       CWAIT_FORWARD_RESPONSE, cmd, proxy->num_backends);
-  redis_proxy_try_send_backend_command(b, e, cmd);
+  proxy_try_send_backend_command(b, e, cmd);
 }
 
 // called when we have no idea what is going on
-void redis_command_default(struct redis_proxy* proxy, struct redis_client* c,
-    struct redis_command* cmd) {
+void redis_command_default(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   printf("UNKNOWN COMMAND: ");
-  redis_command_print(cmd, -1);
+  command_print(cmd, -1);
   printf("\n");
-  redis_proxy_send_client_string_response(c, "PROXYERROR unknown command",
+  proxy_send_client_string_response(c, "PROXYERROR unknown command",
       RESPONSE_ERROR);
 }
 
@@ -1103,12 +1098,12 @@ void redis_command_default(struct redis_proxy* proxy, struct redis_client* c,
 ////////////////////////////////////////////////////////////////////////////////
 // command table & lookup functions
 
-typedef void (*redis_command_handler)(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd);
+typedef void (*command_handler)(struct proxy* proxy, struct client* c,
+    struct command* cmd);
 
 struct {
   const char* command_str;
-  redis_command_handler handler;
+  command_handler handler;
 } command_definitions[] = {
 
   // commands that are unimplemented
@@ -1312,7 +1307,7 @@ int build_command_definitions() {
   return 0;
 }
 
-redis_command_handler handler_for_command(const char* command, int cmdlen) {
+command_handler handler_for_command(const char* command, int cmdlen) {
 
   uint8_t hash = hash_command(command, cmdlen);
 
@@ -1327,11 +1322,11 @@ redis_command_handler handler_for_command(const char* command, int cmdlen) {
 ////////////////////////////////////////////////////////////////////////////////
 // server functions
 
-void redis_proxy_handle_client_command(struct redis_proxy* proxy,
-    struct redis_client* c, struct redis_command* cmd) {
+void proxy_handle_client_command(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
 
   if (cmd->num_args <= 0) {
-    redis_proxy_send_client_string_response(c, "ERR invalid command", RESPONSE_ERROR);
+    proxy_send_client_string_response(c, "ERR invalid command", RESPONSE_ERROR);
     return;
   }
 
@@ -1344,36 +1339,36 @@ void redis_proxy_handle_client_command(struct redis_proxy* proxy,
 
   // need to check for complete responses here because the command handler can
   // add an error item on the queue
-  redis_proxy_process_client_response_chain(c);
+  proxy_process_client_response_chain(c);
 }
 
 
 ////////////////////////////////////////////////////////////////////////////////
 // event callbacks
 
-static void redis_proxy_on_client_input(struct bufferevent *bev, void *ctx) {
-  struct redis_client* c = (struct redis_client*)ctx;
+static void proxy_on_client_input(struct bufferevent *bev, void *ctx) {
+  struct client* c = (struct client*)ctx;
   struct evbuffer* in_buffer = bufferevent_get_input(bev);
 
   if (!c->parser)
-    c->parser = redis_command_parser_create(c);
+    c->parser = command_parser_create(c);
 
-  struct redis_command* cmd;
-  while ((cmd = redis_command_parser_continue(c, c->parser, in_buffer))) {
-    struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
+  struct command* cmd;
+  while ((cmd = command_parser_continue(c, c->parser, in_buffer))) {
+    struct proxy* proxy = (struct proxy*)c->ctx;
     c->num_commands_received++;
     proxy->num_commands_received++;
-    redis_proxy_handle_client_command(proxy, c, cmd);
+    proxy_handle_client_command(proxy, c, cmd);
     resource_delete_ref(c, cmd);
   }
   if (c->parser->error)
     printf("warning: parse error in client stream %s (%d)\n", c->name, c->parser->error);
 }
 
-static void redis_proxy_on_client_error(struct bufferevent *bev, short events,
+static void proxy_on_client_error(struct bufferevent *bev, short events,
     void *ctx) {
-  struct redis_client* c = (struct redis_client*)ctx;
-  struct redis_proxy* proxy = (struct redis_proxy*)c->ctx;
+  struct client* c = (struct client*)ctx;
+  struct proxy* proxy = (struct proxy*)c->ctx;
 
   if (events & BEV_EVENT_ERROR) {
     int err = EVUTIL_SOCKET_ERROR();
@@ -1398,23 +1393,23 @@ static void redis_proxy_on_client_error(struct bufferevent *bev, short events,
   }
 }
 
-static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
-  struct redis_backend* b = (struct redis_backend*)ctx;
+static void proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
+  struct backend* b = (struct backend*)ctx;
   struct evbuffer* in_buffer = bufferevent_get_input(bev);
-  struct redis_proxy* proxy = (struct redis_proxy*)b->ctx;
+  struct proxy* proxy = (struct proxy*)b->ctx;
 
   if (!b->parser)
-    b->parser = redis_response_parser_create(b);
+    b->parser = response_parser_create(b);
 
   int can_continue = 1;
   while (can_continue && !b->parser->error) {
 
     // if the head of the queue is a forwarding client, then use the forwarding
     // parser (don't allocate a response object)
-    struct redis_client_expected_response* e = redis_backend_peek_waiting_client(b);
+    struct client_expected_response* e = backend_peek_waiting_client(b);
     if (e && (e->wait_type == CWAIT_FORWARD_RESPONSE)) {
-      struct evbuffer* out_buffer = redis_client_get_output_buffer(e->client);
-      can_continue = redis_response_parser_continue_forward(b->parser,
+      struct evbuffer* out_buffer = client_get_output_buffer(e->client);
+      can_continue = response_parser_continue_forward(b->parser,
           in_buffer, out_buffer);
       if (can_continue) {
         b->num_responses_received++;
@@ -1423,18 +1418,18 @@ static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
         proxy->num_responses_sent++;
 
         // a full response was forwarded; delete the wait object
-        redis_backend_get_waiting_client(b);
-        redis_client_remove_expected_response(e->client);
+        backend_get_waiting_client(b);
+        client_remove_expected_response(e->client);
       }
 
     } else {
-      struct redis_response* rsp = redis_response_parser_continue(b, b->parser,
+      struct response* rsp = response_parser_continue(b, b->parser,
           in_buffer);
       can_continue = !!rsp;
       if (rsp) {
         b->num_responses_received++;
         proxy->num_responses_received++;
-        redis_proxy_handle_backend_response(proxy, b, rsp);
+        proxy_handle_backend_response(proxy, b, rsp);
         resource_delete_ref(b, rsp);
       }
     }
@@ -1442,13 +1437,13 @@ static void redis_proxy_on_backend_input(struct bufferevent *bev, void *ctx) {
 
   if (b->parser->error) {
     printf("warning: parse error in backend stream %s (%d); disconnecting backend\n", b->name, b->parser->error);
-    redis_proxy_on_backend_error(bev, BEV_EVENT_EOF, b);
+    proxy_on_backend_error(bev, BEV_EVENT_EOF, b);
   }
 }
 
-static void redis_proxy_on_backend_error(struct bufferevent *bev, short events,
+static void proxy_on_backend_error(struct bufferevent *bev, short events,
     void *ctx) {
-  struct redis_backend* b = (struct redis_backend*)ctx;
+  struct backend* b = (struct backend*)ctx;
 
   if (events & BEV_EVENT_ERROR) {
     int err = EVUTIL_SOCKET_ERROR();
@@ -1469,21 +1464,21 @@ static void redis_proxy_on_backend_error(struct bufferevent *bev, short events,
 
     // issue a fake error response to all waiting clients
     if (b->wait_chain_head) {
-      struct redis_response* error_response = redis_response_printf(b,
+      struct response* error_response = response_printf(b,
           RESPONSE_ERROR, "CHANNELERROR backend disconnected before sending the response");
 
-      struct redis_client_expected_response* e;
-      while ((e = redis_backend_get_waiting_client(b)))
-        redis_proxy_handle_backend_response((struct redis_proxy*)b->ctx, b,
+      struct client_expected_response* e;
+      while ((e = backend_get_waiting_client(b)))
+        proxy_handle_backend_response((struct proxy*)b->ctx, b,
             error_response);
       resource_delete_ref(b, error_response);
     }
   }
 }
 
-static void redis_proxy_on_listen_error(struct evconnlistener *listener,
+static void proxy_on_listen_error(struct evconnlistener *listener,
     void *ctx) {
-  struct redis_proxy* proxy = (struct redis_proxy*)ctx;
+  struct proxy* proxy = (struct proxy*)ctx;
 
   int err = EVUTIL_SOCKET_ERROR();
   printf("error: server socket failed with code %d (%s)\n", err,
@@ -1492,10 +1487,10 @@ static void redis_proxy_on_listen_error(struct evconnlistener *listener,
   event_base_loopexit(proxy->base, NULL);
 }
 
-static void redis_proxy_on_client_accept(struct evconnlistener *listener,
+static void proxy_on_client_accept(struct evconnlistener *listener,
     evutil_socket_t fd, struct sockaddr *address, int socklen, void *ctx) {
 
-  struct redis_proxy* proxy = (struct redis_proxy*)ctx;
+  struct proxy* proxy = (struct proxy*)ctx;
 
   int fd_flags = fcntl(fd, F_GETFD, 0);
   if (fd_flags >= 0) {
@@ -1508,9 +1503,9 @@ static void redis_proxy_on_client_accept(struct evconnlistener *listener,
       BEV_OPT_CLOSE_ON_FREE);
 
   // allocate a struct for this connection
-  struct redis_client* c = redis_client_create(proxy, bev);
+  struct client* c = client_create(proxy, bev);
   if (!c) {
-    printf("error: server is out of memory; can\'t allocate a redis_client\n");
+    printf("error: server is out of memory; can\'t allocate a client\n");
     bufferevent_free(bev);
     return;
   }
@@ -1530,7 +1525,7 @@ static void redis_proxy_on_client_accept(struct evconnlistener *listener,
   proxy->num_clients++;
   proxy->num_connections_received++;
 
-  bufferevent_setcb(c->bev, redis_proxy_on_client_input, NULL,
-      redis_proxy_on_client_error, c);
+  bufferevent_setcb(c->bev, proxy_on_client_input, NULL,
+      proxy_on_client_error, c);
   bufferevent_enable(c->bev, EV_READ | EV_WRITE);
 }
