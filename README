@@ -28,6 +28,7 @@ BGREWRITEAOF      -- Yes        -- *6
 BGSAVE            -- Yes        -- *6
 BITCOUNT          -- Yes        --
 BITOP             -- Yes        -- *2
+BITPOS            -- Yes        --
 BLPOP             -- No         --
 BRPOP             -- No         --
 BRPOPLPUSH        -- No         --
@@ -98,6 +99,9 @@ OBJECT            -- Yes        --
 PERSIST           -- Yes        --
 PEXPIRE           -- Yes        --
 PEXPIREAT         -- Yes        --
+PFADD             -- Yes        --
+PFCOUNT           -- Yes        -- *2
+PFMERGE           -- Yes        -- *2
 PING              -- Yes        --
 PSETEX            -- Yes        --
 PSUBSCRIBE        -- No         --
@@ -158,10 +162,13 @@ ZCARD             -- Yes        --
 ZCOUNT            -- Yes        --
 ZINCRBY           -- Yes        --
 ZINTERSTORE       -- Yes        -- *2
+ZLEXCOUNT         -- Yes        --
 ZRANGE            -- Yes        --
+ZRANGEBYLEX       -- Yes        --
 ZRANGEBYSCORE     -- Yes        --
 ZRANK             -- Yes        --
 ZREM              -- Yes        --
+ZREMRANGEBYLEX    -- Yes        --
 ZREMRANGEBYRANK   -- Yes        --
 ZREMRANGEBYSCORE  -- Yes        --
 ZREVRANGE         -- Yes        --

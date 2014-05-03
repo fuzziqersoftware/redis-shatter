@@ -893,7 +893,7 @@ void redis_command_forward_by_keys_1(struct proxy* proxy, struct client* c,
 
 void redis_command_forward_by_keys_1_2(struct proxy* proxy, struct client* c,
     struct command* cmd) {
-  redis_command_forward_by_keys(proxy, c, cmd, 1, 2);
+  redis_command_forward_by_keys(proxy, c, cmd, 1, 3);
 }
 
 void redis_command_forward_by_keys_2(struct proxy* proxy, struct client* c,
@@ -1139,6 +1139,7 @@ struct {
   {"BGREWRITEAOF",      redis_command_all_collect_responses},       // - Asynchronously rewrite the append-only file
   {"BGSAVE",            redis_command_all_collect_responses},       // - Asynchronously save db to disk
   {"BITCOUNT",          redis_command_forward_by_key1},             // key [start] [end] - Count set bits in a string
+  {"BITPOS",            redis_command_forward_by_key1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
   {"BITOP",             redis_command_forward_by_keys_2},           // operation destkey key [key ...] - Perform bitwise operations between strings
   {"CONFIG",            redis_command_all_collect_responses},       // GET parameter / REWRITE / SET param value / RESETSTAT
   {"DBSIZE",            redis_command_DBSIZE},                      // - Return the number of keys in the selected database
@@ -1153,8 +1154,8 @@ struct {
   {"EXISTS",            redis_command_forward_by_key1},             // key - Determine if a key exists
   {"EXPIRE",            redis_command_forward_by_key1},             // key seconds - Set a keys time to live in seconds
   {"EXPIREAT",          redis_command_forward_by_key1},             // key timestamp - Set the expiration for a key as a UNIX timestamp
-  {"FLUSHDB",           redis_command_all_collect_responses},       // - Remove all keys from the current database
   {"FLUSHALL",          redis_command_all_collect_responses},       // - Remove all keys from all databases
+  {"FLUSHDB",           redis_command_all_collect_responses},       // - Remove all keys from the current database
   {"GET",               redis_command_forward_by_key1},             // key - Get the value of a key
   {"GETBIT",            redis_command_forward_by_key1},             // key offset - Returns the bit value at offset in the string value stored at key
   {"GETRANGE",          redis_command_forward_by_key1},             // key start end - Get a substring of the string stored at a key
@@ -1196,6 +1197,9 @@ struct {
   {"PERSIST",           redis_command_forward_by_key1},             // key - Remove the expiration from a key
   {"PEXPIRE",           redis_command_forward_by_key1},             // key milliseconds - Set a keys time to live in milliseconds
   {"PEXPIREAT",         redis_command_forward_by_key1},             // key milliseconds-timestamp - Set the expiration for a key as a UNIX timestamp specified in milliseconds
+  {"PFADD",             redis_command_forward_by_key1},             // key element [element ...] - Add all elements to HyperLogLog
+  {"PFCOUNT",           redis_command_forward_by_keys_1},           // key [key ...] - Count unique elements in HyperLogLogs
+  {"PFMERGE",           redis_command_forward_by_keys_1},           // key [key ...] - Merge HyperLogLogs into one
   {"PING",              redis_command_PING},                        // - Ping the server
   {"PSETEX",            redis_command_forward_by_key1},             // key milliseconds value - Set the value and expiration in milliseconds of a key
   {"PTTL",              redis_command_forward_by_key1},             // key - Get the time to live for a key in milliseconds
@@ -1239,10 +1243,13 @@ struct {
   {"ZCOUNT",            redis_command_forward_by_key1},             // key min max - Count the members in a sorted set with scores within the given values
   {"ZINCRBY",           redis_command_forward_by_key1},             // key increment member - Increment the score of a member in a sorted set
   {"ZINTERSTORE",       redis_command_ZACTIONSTORE},                // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Intersect multiple sorted sets and store the resulting sorted set in a new key
+  {"ZLEXCOUNT",         redis_command_forward_by_key1},             // key min max - Count the members in a sorted set with scores within the given values
   {"ZRANGE",            redis_command_forward_by_key1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index
+  {"ZRANGEBYLEX",       redis_command_forward_by_key1},             // key min max [LIMIT offset count] - Return a range of members in a sorted set, by lex
   {"ZRANGEBYSCORE",     redis_command_forward_by_key1},             // key min max [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score
   {"ZRANK",             redis_command_forward_by_key1},             // key member - Determine the index of a member in a sorted set
   {"ZREM",              redis_command_forward_by_key1},             // key member [member ...] - Remove one or more members from a sorted set
+  {"ZREMRANGEBYLEX",    redis_command_forward_by_key1},             // key min max - Remove all members in a sorted set within the given lex range
   {"ZREMRANGEBYRANK",   redis_command_forward_by_key1},             // key start stop - Remove all members in a sorted set within the given indexes
   {"ZREMRANGEBYSCORE",  redis_command_forward_by_key1},             // key min max - Remove all members in a sorted set within the given scores
   {"ZREVRANGE",         redis_command_forward_by_key1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index, with scores ordered from high to low
