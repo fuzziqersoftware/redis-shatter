@@ -674,7 +674,10 @@ void redis_command_INFO(struct proxy* proxy, struct client* c,
     else
       sprintf(hash_end_delimiter_str, "NULL");
 
+    int64_t uptime = (time(NULL) - proxy->start_time);
+
     struct response* resp = response_printf(cmd, RESPONSE_DATA, "\
+# Counters\n\
 num_commands_received:%d\n\
 num_commands_sent:%d\n\
 num_responses_received:%d\n\
@@ -682,10 +685,16 @@ num_responses_sent:%d\n\
 num_connections_received:%d\n\
 num_clients:%d\n\
 num_backends:%d\n\
+\n\
+# Timing\n\
 start_time:%d\n\
 uptime:%d\n\
+\n\
+# Memory\n\
 resource_count:%d\n\
 resource_refcount:%d\n\
+\n\
+# Configuration\n\
 process_id:%d\n\
 process_num:%d\n\
 num_processes:%d\n\
@@ -694,8 +703,8 @@ hash_end_delimiter:%s\n\
 ", proxy->num_commands_received, proxy->num_commands_sent,
         proxy->num_responses_received, proxy->num_responses_sent,
         proxy->num_connections_received, proxy->num_clients, proxy->num_backends,
-        proxy->start_time, (time(NULL) - proxy->start_time), resource_count(),
-        resource_refcount(), getpid(), proxy->process_num, proxy->num_processes,
+        proxy->start_time, uptime, resource_count(), resource_refcount(),
+        getpid(), proxy->process_num, proxy->num_processes,
         hash_begin_delimiter_str, hash_end_delimiter_str);
     proxy_send_client_response(c, resp);
     resource_delete_ref(cmd, resp);
