@@ -424,7 +424,7 @@ void proxy_complete_response(struct client_expected_response* e) {
           break;
         }
       }
-      if (e->error_response)
+      if (x < e->collect_multi.num_responses)
         break;
 
       proxy_send_client_response(e->client, e->collect_multi.responses[0]);
