@@ -1180,6 +1180,12 @@ void redis_command_RANDOMKEY(struct proxy* proxy, struct client* c,
   proxy_try_send_backend_command(b, e, cmd);
 }
 
+void redis_command_unimplemented(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+  proxy_send_client_string_response(c, "PROXYERROR command not supported",
+      RESPONSE_ERROR);
+}
+
 // called when we have no idea what is going on
 void redis_command_default(struct proxy* proxy, struct client* c,
     struct command* cmd) {
@@ -1205,31 +1211,31 @@ struct {
 } command_definitions[] = {
 
   // commands that are unimplemented
-  {"AUTH",              NULL}, // password - Authenticate to the server
-  {"BLPOP",             NULL}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
-  {"BRPOP",             NULL}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
-  {"BRPOPLPUSH",        NULL}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
-  {"CLIENT",            NULL}, // KILL ip:port / LIST / GETNAME / SETNAME name
-  {"DISCARD",           NULL}, // - Discard all commands issued after MULTI
-  {"EXEC",              NULL}, // - Execute all commands issued after MULTI
-  {"MONITOR",           NULL}, // - Listen for all requests received by the server in real time
-  {"MOVE",              NULL}, // key db - Move a key to another database
-  {"MSETNX",            NULL}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist
-  {"MULTI",             NULL}, // - Mark the start of a transaction block
-  {"PSUBSCRIBE",        NULL}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
-  {"PUBSUB",            NULL}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
-  {"PUBLISH",           NULL}, // channel message - Post a message to a channel
-  {"PUNSUBSCRIBE",      NULL}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
-  {"QUIT",              NULL}, // - Close the connection
-  {"SELECT",            NULL}, // index - Change the selected database for the current connection
-  {"SHUTDOWN",          NULL}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
-  {"SLAVEOF",           NULL}, // host port - Make the server a slave of another instance, or promote it as master
-  {"SLOWLOG",           NULL}, // subcommand [argument] - Manages the Redis slow queries log
-  {"SUBSCRIBE",         NULL}, // channel [channel ...] - Listen for messages published to the given channels
-  {"SYNC",              NULL}, // - Internal command used for replication
-  {"UNSUBSCRIBE",       NULL}, // [channel [channel ...]] - Stop listening for messages posted to the given channels
-  {"UNWATCH",           NULL}, // - Forget about all watched keys
-  {"WATCH",             NULL}, // key [key ...] - Watch the given keys to determine execution of the MULTI/EXEC block
+  {"AUTH",              redis_command_unimplemented}, // password - Authenticate to the server
+  {"BLPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
+  {"BRPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
+  {"BRPOPLPUSH",        redis_command_unimplemented}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
+  {"CLIENT",            redis_command_unimplemented}, // KILL ip:port / LIST / GETNAME / SETNAME name
+  {"DISCARD",           redis_command_unimplemented}, // - Discard all commands issued after MULTI
+  {"EXEC",              redis_command_unimplemented}, // - Execute all commands issued after MULTI
+  {"MONITOR",           redis_command_unimplemented}, // - Listen for all requests received by the server in real time
+  {"MOVE",              redis_command_unimplemented}, // key db - Move a key to another database
+  {"MSETNX",            redis_command_unimplemented}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist
+  {"MULTI",             redis_command_unimplemented}, // - Mark the start of a transaction block
+  {"PSUBSCRIBE",        redis_command_unimplemented}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
+  {"PUBSUB",            redis_command_unimplemented}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
+  {"PUBLISH",           redis_command_unimplemented}, // channel message - Post a message to a channel
+  {"PUNSUBSCRIBE",      redis_command_unimplemented}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
+  {"QUIT",              redis_command_unimplemented}, // - Close the connection
+  {"SELECT",            redis_command_unimplemented}, // index - Change the selected database for the current connection
+  {"SHUTDOWN",          redis_command_unimplemented}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
+  {"SLAVEOF",           redis_command_unimplemented}, // host port - Make the server a slave of another instance, or promote it as master
+  {"SLOWLOG",           redis_command_unimplemented}, // subcommand [argument] - Manages the Redis slow queries log
+  {"SUBSCRIBE",         redis_command_unimplemented}, // channel [channel ...] - Listen for messages published to the given channels
+  {"SYNC",              redis_command_unimplemented}, // - Internal command used for replication
+  {"UNSUBSCRIBE",       redis_command_unimplemented}, // [channel [channel ...]] - Stop listening for messages posted to the given channels
+  {"UNWATCH",           redis_command_unimplemented}, // - Forget about all watched keys
+  {"WATCH",             redis_command_unimplemented}, // key [key ...] - Watch the given keys to determine execution of the MULTI/EXEC block
 
   // commands that are implemented
   {"APPEND",            redis_command_forward_by_key1},             // key value - Append a value to a key
