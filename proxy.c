@@ -430,6 +430,39 @@ void proxy_complete_response(struct client_expected_response* e) {
       proxy_send_client_response(e->client, e->collect_multi.responses[0]);
       break; }
 
+    case CWAIT_MODIFY_SCAN_RESPONSE: {
+      if (e->response_to_forward->response_type != RESPONSE_MULTI ||
+          e->response_to_forward->multi_value.num_fields != 2 ||
+          e->response_to_forward->multi_value.fields[0]->response_type != RESPONSE_DATA) {
+        proxy_send_client_string_response(e->client,
+            "CHANNELERROR backend returned wrong result type", RESPONSE_ERROR);
+        break;
+      }
+
+      struct response* cursor = e->response_to_forward->multi_value.fields[0];
+      if (cursor->data_value.size == 1 && *(char*)cursor->data_value.data == '0') {
+
+        // this backend is done; go to the next one if any
+        int64_t next_backend_id = e->scan_backend_num + 1;
+        struct proxy* proxy = e->client->ctx;
+
+        // if there are more backends, start the next one
+        if (next_backend_id < proxy->num_backends) {
+          e->response_to_forward->multi_value.fields[0] = response_printf(
+              e->response_to_forward, RESPONSE_DATA, "%d:0", next_backend_id);
+        }
+
+      } else {
+        // this backend isn't done yet
+        e->response_to_forward->multi_value.fields[0] = response_printf(
+            e->response_to_forward, RESPONSE_DATA, "%d:%.*s",
+            e->scan_backend_num, cursor->data_value.size,
+            cursor->data_value.data);
+      }
+
+      proxy_send_client_response(e->client, e->response_to_forward);
+      break; }
+
     default:
       proxy_send_client_string_response(e->client,
           "PROXYERROR invalid wait type on response completion", RESPONSE_ERROR);
@@ -457,6 +490,7 @@ void proxy_handle_backend_response(struct proxy* proxy, struct backend* b,
     switch (e->wait_type) {
 
       case CWAIT_FORWARD_RESPONSE:
+      case CWAIT_MODIFY_SCAN_RESPONSE:
         e->response_to_forward = r;
         resource_add_ref(e, r);
         break;
@@ -1023,6 +1057,61 @@ void redis_command_SCRIPT(struct proxy* proxy, struct client* c,
   }
 }
 
+void redis_command_SCAN(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+  if (cmd->num_args < 2) {
+    proxy_send_client_string_response(c,
+        "ERR not enough arguments", RESPONSE_ERROR);
+    return;
+  }
+
+  // if cursor is "0" then we're starting a new scan on the first backend
+  if (cmd->args[1].size == 1 && *(char*)cmd->args[1].data == '0') {
+    struct client_expected_response* e = client_expect_response(c,
+        CWAIT_MODIFY_SCAN_RESPONSE, cmd, 1);
+    e->scan_backend_num = 0;
+    proxy_try_send_backend_command(proxy->backends[0], e, cmd);
+    return;
+  }
+
+  // cursor is formatted as "backend:cursor"
+  int x;
+  for (x = 0; x < cmd->args[1].size; x++)
+    if (((char*)cmd->args[1].data)[x] == ':')
+      break;
+  if (x == cmd->args[1].size) {
+    proxy_send_client_string_response(c,
+        "PROXYERROR cursor format is incorrect", RESPONSE_ERROR);
+    return;
+  }
+
+  // parse backend_num and cursor_contents
+  int64_t backend_id = 0;
+  if (!parse_integer_field(cmd->args[1].data, x, &backend_id) ||
+      (backend_id < 0 || backend_id >= proxy->num_backends)) {
+    proxy_send_client_string_response(c,
+        "ERR cursor refers to a nonexistent backend", RESPONSE_ERROR);
+    return;
+  }
+
+  // create backend command
+  struct command* backend_cmd = command_create(cmd, cmd->num_args);
+  backend_cmd->external_arg_data = 1;
+  for (x = 0; x < cmd->num_args; x++) {
+    backend_cmd->args[x].data = cmd->args[x].data;
+    backend_cmd->args[x].size = cmd->args[x].size;
+  }
+  backend_cmd->args[1].data = (void*)((char*)cmd->args[1].data + x);
+  backend_cmd->args[1].size = cmd->args[1].size - x;
+
+  // send command
+  struct client_expected_response* e = client_expect_response(c,
+      CWAIT_MODIFY_SCAN_RESPONSE, backend_cmd, 1);
+  e->scan_backend_num = backend_id;
+  proxy_try_send_backend_command(proxy->backends[backend_id], e, backend_cmd);
+  resource_delete_ref(cmd, backend_cmd);
+}
+
 void redis_command_KEYS(struct proxy* proxy, struct client* c,
     struct command* cmd) {
   // CAVEAT EMPTOR: this may double-list incorrectly-distributed keys
@@ -1123,7 +1212,6 @@ struct {
   {"PUBLISH",           NULL}, // channel message - Post a message to a channel
   {"PUNSUBSCRIBE",      NULL}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
   {"QUIT",              NULL}, // - Close the connection
-  {"SCAN",              NULL}, // cursor [MATCH pattern] [COUNT count] - Incrementally iterate the keys space
   {"SELECT",            NULL}, // index - Change the selected database for the current connection
   {"SHUTDOWN",          NULL}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
   {"SLAVEOF",           NULL}, // host port - Make the server a slave of another instance, or promote it as master
@@ -1213,6 +1301,7 @@ struct {
   {"RPUSHX",            redis_command_forward_by_key1},             // key value - Append a value to a list, only if the list exists
   {"SADD",              redis_command_forward_by_key1},             // key member [member ...] - Add one or more members to a set
   {"SAVE",              redis_command_all_collect_responses},       // - Synchronously save the dataset to disk
+  {"SCAN",              redis_command_SCAN},                        // cursor [MATCH pattern] [COUNT count] - Incrementally iterate the keys space
   {"SCARD",             redis_command_forward_by_key1},             // key - Get the number of members in a set
   {"SCRIPT",            redis_command_SCRIPT},                      // KILL / EXISTS name / FLUSH / LOAD data - Kill the script currently in execution.
   {"SDIFF",             redis_command_forward_by_keys_1},           // key [key ...] - Subtract multiple sets

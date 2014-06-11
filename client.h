@@ -18,6 +18,7 @@
 #define CWAIT_COLLECT_RESPONSES                  4
 #define CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY     5
 #define CWAIT_COLLECT_IDENTICAL_RESPONSES        6
+#define CWAIT_MODIFY_SCAN_RESPONSE               7
 
 struct client;
 
@@ -48,6 +49,7 @@ struct client_expected_response {
     struct command** index_to_command;
     struct response* response_in_progress;
   } collect_key;
+  int64_t scan_backend_num;
 };
 
 struct client {

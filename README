@@ -119,7 +119,7 @@ RPUSH             -- Yes        --
 RPUSHX            -- Yes        --
 SADD              -- Yes        --
 SAVE              -- Yes        -- *6
-SCAN              -- No         --
+SCAN              -- Yes        -- *B
 SCARD             -- Yes        --
 SCRIPT EXISTS     -- Yes        -- *5
 SCRIPT FLUSH      -- Yes        -- *6
@@ -209,6 +209,13 @@ Notes:
       example, if 'x' belongs on backend 3 but exists on backends 5 and 3, then
       'x' will be counted twice. If 'x' exists on backend 5 and not 3, then 'x'
       will be counted once but will not be accessible through redis-shatter.
+*B -- Keys may be returned multiple times if they exist on the wrong backend -
+      for example, if 'x' belongs on backend 3 but exists on backends 5 and 3,
+      then 'x' may be returned twice. If 'x' exists on backend 5 and not 3, then
+      'x' may be returned but will not be accessible through redis-shatter. The
+      cursor format is also not a single integer; rather, it's a colon-separated
+      pair of integers. The only exceptions are the initial and final cursors,
+      which are still "0" to conform to protocol.
 
 
 redis-shatter also implements some commands that aren't part of the official
