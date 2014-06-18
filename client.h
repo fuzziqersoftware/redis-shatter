@@ -20,6 +20,8 @@
 #define CWAIT_COLLECT_IDENTICAL_RESPONSES        6
 #define CWAIT_MODIFY_SCAN_RESPONSE               7
 
+#define CLIENT_NAME_LENGTH    0x40
+
 struct client;
 
 struct client_expected_response {
@@ -55,7 +57,7 @@ struct client_expected_response {
 struct client {
   struct resource res;
 
-  char name[0x40];
+  char name[CLIENT_NAME_LENGTH];
 
   struct client* prev;
   struct client* next;

@@ -32,8 +32,10 @@ BITPOS            -- Yes        --
 BLPOP             -- No         --
 BRPOP             -- No         --
 BRPOPLPUSH        -- No         --
+CLIENT GETNAME    -- Yes        --
 CLIENT KILL       -- No         --
-CLIENT LIST       -- No         --
+CLIENT LIST       -- Yes        -- *C
+CLIENT SETNAME    -- Yes        --
 CONFIG GET        -- Yes        -- *5
 CONFIG RESETSTAT  -- Yes        -- *6
 CONFIG SET        -- Yes        -- *6
@@ -216,6 +218,14 @@ Notes:
       cursor format is also not a single integer; rather, it's a colon-separated
       pair of integers. The only exceptions are the initial and final cursors,
       which are still "0" to conform to protocol.
+*C -- The returned fields are different from redis-server. They are:
+      - addr: the client's ip:port string.
+      - name: the client's name, in quotes (names can contain spaces).
+      - parser: 1 if the client has a parser (i.e. has sent any commands).
+      - cmdrecv: number of commands received from this client.
+      - rspsent: number of responses sent to this client.
+      - rspchain: response chain length (effectively, the number of backend
+        responses that this client is waiting on).
 
 
 redis-shatter also implements some commands that aren't part of the official

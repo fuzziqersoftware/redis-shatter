@@ -1180,6 +1180,66 @@ void redis_command_RANDOMKEY(struct proxy* proxy, struct client* c,
   proxy_try_send_backend_command(b, e, cmd);
 }
 
+void redis_command_CLIENT(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+
+  if (cmd->num_args < 2) {
+    proxy_send_client_string_response(c, "ERR not enough arguments",
+        RESPONSE_ERROR);
+    return;
+  }
+
+  if (cmd->args[1].size == 4 && !memcmp(cmd->args[1].data, "LIST", 4)) {
+    struct client* this_c;
+    int num_clients = 0;
+    for (this_c = proxy->client_chain_head; this_c; this_c = this_c->next)
+      num_clients++;
+
+    struct response* r = response_create(c, RESPONSE_DATA, num_clients * 128);
+    int r_offset = 0;
+    for (this_c = proxy->client_chain_head; this_c; this_c = this_c->next) {
+
+      int response_chain_length = 0;
+      struct client_expected_response* e;
+      for (e = this_c->response_chain_head; e; e = e->next_response)
+        response_chain_length++;
+
+      r_offset += sprintf((char*)&r->data_value.data[r_offset],
+          "addr=%s:%d name=\"%s\" parser=%d cmdrecv=%d rspsent=%d rspchain=%d\n",
+          inet_ntoa(this_c->remote.sin_addr), ntohs(this_c->remote.sin_port),
+          this_c->name, this_c->parser ? 1 : 0, this_c->num_commands_received,
+          this_c->num_responses_sent, response_chain_length);
+    }
+
+    r->data_value.size = r_offset;
+    proxy_send_client_response(c, r);
+    resource_delete_ref(c, r);
+
+  } else if (cmd->args[1].size == 7 && !memcmp(cmd->args[1].data, "SETNAME", 7)) {
+    if (cmd->num_args != 3) {
+      proxy_send_client_string_response(c, "ERR not enough arguments",
+          RESPONSE_ERROR);
+      return;
+    }
+    if (cmd->args[2].size >= CLIENT_NAME_LENGTH) {
+      proxy_send_client_string_response(c, "ERR name is too long",
+          RESPONSE_ERROR);
+      return;
+    }
+    memcpy(c->name, cmd->args[2].data, cmd->args[2].size);
+    c->name[cmd->args[2].size] = 0;
+    proxy_send_client_string_response(c, "OK", RESPONSE_STATUS);
+
+  } else if (cmd->args[1].size == 7 && !memcmp(cmd->args[1].data, "GETNAME", 7)) {
+    struct response* r = response_printf(c, RESPONSE_DATA, "%s", c->name);
+    proxy_send_client_response(c, r);
+    resource_delete_ref(c, r);
+
+  } else
+    proxy_send_client_string_response(c, "ERR unknown subcommand",
+        RESPONSE_ERROR);
+}
+
 void redis_command_unimplemented(struct proxy* proxy, struct client* c,
     struct command* cmd) {
   proxy_send_client_string_response(c, "PROXYERROR command not supported",
@@ -1215,7 +1275,6 @@ struct {
   {"BLPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
   {"BRPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
   {"BRPOPLPUSH",        redis_command_unimplemented}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
-  {"CLIENT",            redis_command_unimplemented}, // KILL ip:port / LIST / GETNAME / SETNAME name
   {"DISCARD",           redis_command_unimplemented}, // - Discard all commands issued after MULTI
   {"EXEC",              redis_command_unimplemented}, // - Execute all commands issued after MULTI
   {"MONITOR",           redis_command_unimplemented}, // - Listen for all requests received by the server in real time
@@ -1243,6 +1302,7 @@ struct {
   {"BITCOUNT",          redis_command_forward_by_key1},             // key [start] [end] - Count set bits in a string
   {"BITOP",             redis_command_forward_by_keys_2},           // operation destkey key [key ...] - Perform bitwise operations between strings
   {"BITPOS",            redis_command_forward_by_key1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
+  {"CLIENT",            redis_command_CLIENT},                      // KILL ip:port / LIST / GETNAME / SETNAME name
   {"CONFIG",            redis_command_all_collect_responses},       // GET parameter / REWRITE / SET param value / RESETSTAT
   {"DBSIZE",            redis_command_DBSIZE},                      // - Return the number of keys in the selected database
   {"DEBUG",             redis_command_DEBUG},                       // OBJECT key - Get debugging information about a key
