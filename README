@@ -138,7 +138,7 @@ SINTER            -- Yes        -- *2
 SINTERSTORE       -- Yes        -- *2
 SISMEMBER         -- Yes        --
 SLAVEOF           -- No         --
-SLOWLOG           -- No         --
+SLOWLOG           -- Yes        -- *5
 SMEMBERS          -- Yes        --
 SMOVE             -- Yes        -- *2
 SORT              -- Yes        -- *2 *3

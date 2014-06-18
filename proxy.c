@@ -1230,7 +1230,6 @@ struct {
   {"SELECT",            redis_command_unimplemented}, // index - Change the selected database for the current connection
   {"SHUTDOWN",          redis_command_unimplemented}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
   {"SLAVEOF",           redis_command_unimplemented}, // host port - Make the server a slave of another instance, or promote it as master
-  {"SLOWLOG",           redis_command_unimplemented}, // subcommand [argument] - Manages the Redis slow queries log
   {"SUBSCRIBE",         redis_command_unimplemented}, // channel [channel ...] - Listen for messages published to the given channels
   {"SYNC",              redis_command_unimplemented}, // - Internal command used for replication
   {"UNSUBSCRIBE",       redis_command_unimplemented}, // [channel [channel ...]] - Stop listening for messages posted to the given channels
@@ -1242,8 +1241,8 @@ struct {
   {"BGREWRITEAOF",      redis_command_all_collect_responses},       // - Asynchronously rewrite the append-only file
   {"BGSAVE",            redis_command_all_collect_responses},       // - Asynchronously save db to disk
   {"BITCOUNT",          redis_command_forward_by_key1},             // key [start] [end] - Count set bits in a string
-  {"BITPOS",            redis_command_forward_by_key1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
   {"BITOP",             redis_command_forward_by_keys_2},           // operation destkey key [key ...] - Perform bitwise operations between strings
+  {"BITPOS",            redis_command_forward_by_key1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
   {"CONFIG",            redis_command_all_collect_responses},       // GET parameter / REWRITE / SET param value / RESETSTAT
   {"DBSIZE",            redis_command_DBSIZE},                      // - Return the number of keys in the selected database
   {"DEBUG",             redis_command_DEBUG},                       // OBJECT key - Get debugging information about a key
@@ -1329,6 +1328,7 @@ struct {
   {"SINTER",            redis_command_forward_by_keys_1},           // key [key ...] - Intersect multiple sets
   {"SINTERSTORE",       redis_command_forward_by_keys_1},           // destination key [key ...] - Intersect multiple sets and store the resulting set in a key
   {"SISMEMBER",         redis_command_forward_by_key1},             // key member - Determine if a given value is a member of a set
+  {"SLOWLOG",           redis_command_all_collect_responses},       // GET [n] / LEN / RESET
   {"SMEMBERS",          redis_command_forward_by_key1},             // key - Get all the members in a set
   {"SMOVE",             redis_command_forward_by_keys_1_2},         // source destination member - Move a member from one set to another
   {"SORT",              redis_command_forward_by_key1},             // key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination] - Sort the elements in a list, set or sorted set
