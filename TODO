@@ -4,5 +4,4 @@
 - Deal with backend failures in a more graceful manner.
 - Write functional/integration tests.
 - Implement configuration reloading.
-- Fix SCRIPT EXISTS to return the same response format as redis-server.
 - Fix the makefile so it captures header dependencies properly.

@@ -123,6 +123,8 @@ static const char* client_cwait_type_name(int type) {
       return "CWAIT_COLLECT_MULTI_RESPONSES_BY_KEY";
     case CWAIT_COLLECT_IDENTICAL_RESPONSES:
       return "CWAIT_COLLECT_IDENTICAL_RESPONSES";
+    case CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE:
+      return "CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE";
     default:
       return "UNKNOWN_CWAIT_TYPE";
   }
@@ -168,7 +170,8 @@ void client_expected_response_print(const struct client_expected_response* e, in
 
     case CWAIT_COMBINE_MULTI_RESPONSES:
     case CWAIT_COLLECT_RESPONSES:
-    case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
+    case CWAIT_COLLECT_IDENTICAL_RESPONSES:
+    case CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE: {
       int x;
       printf("responses=[\n");
       for (x = 0; x < e->collect_multi.num_responses; x++) {

@@ -416,7 +416,7 @@ void proxy_complete_response(struct client_expected_response* e) {
 
     case CWAIT_COLLECT_IDENTICAL_RESPONSES: {
       int x;
-      for (x = 0; x < e->collect_multi.num_responses; x++) {
+      for (x = 1; x < e->collect_multi.num_responses; x++) {
         if (!responses_equal(e->collect_multi.responses[x],
             e->collect_multi.responses[0])) {
           proxy_send_client_string_response(e->client,
@@ -461,6 +461,48 @@ void proxy_complete_response(struct client_expected_response* e) {
       }
 
       proxy_send_client_response(e->client, e->response_to_forward);
+      break; }
+
+    case CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE: {
+      // expect multi response with integer fields
+      struct response* resp = NULL;
+      int x, y;
+      for (x = 0; x < e->collect_multi.num_responses; x++) {
+        if (e->collect_multi.responses[x]->response_type != RESPONSE_MULTI) {
+          proxy_send_client_string_response(e->client,
+              "CHANNELERROR backend returned wrong result type", RESPONSE_ERROR);
+          return;
+        }
+
+        if (!resp)
+          resp = response_create(e, RESPONSE_MULTI,
+              e->collect_multi.responses[x]->multi_value.num_fields);
+        if (resp->multi_value.num_fields != e->collect_multi.responses[x]->multi_value.num_fields) {
+          proxy_send_client_string_response(e->client,
+              "CHANNELERROR backend returned wrong result size", RESPONSE_ERROR);
+          return;
+        }
+
+        for (y = 0; y < e->collect_multi.responses[x]->multi_value.num_fields; y++) {
+          if (e->collect_multi.responses[x]->multi_value.fields[y]->response_type != RESPONSE_INTEGER) {
+            proxy_send_client_string_response(e->client,
+                "CHANNELERROR backend returned wrong result type", RESPONSE_ERROR);
+            return;
+          }
+
+          if (resp->multi_value.fields[y] == NULL) {
+            resp->multi_value.fields[y] = response_create(resp,
+                RESPONSE_INTEGER, e->collect_multi.responses[x]->multi_value.fields[y]->int_value);
+            resp->multi_value.fields[y]->int_value = e->collect_multi.responses[x]->multi_value.fields[y]->int_value;
+          } else
+            resp->multi_value.fields[y]->int_value &= e->collect_multi.responses[x]->multi_value.fields[y]->int_value;
+        }
+      }
+      if (resp)
+        proxy_send_client_response(e->client, resp);
+      else
+        proxy_send_client_string_response(e->client,
+            "PROXYERROR no data was returned", RESPONSE_ERROR);
       break; }
 
     default:
@@ -512,6 +554,7 @@ void proxy_handle_backend_response(struct proxy* proxy, struct backend* b,
       case CWAIT_COMBINE_MULTI_RESPONSES:
       case CWAIT_COLLECT_RESPONSES:
       case CWAIT_COLLECT_IDENTICAL_RESPONSES:
+      case CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE:
         e->collect_multi.responses[e->collect_multi.num_responses] = r;
         e->collect_multi.num_responses++;
         resource_add_ref(e, r);
@@ -1058,7 +1101,7 @@ void redis_command_SCRIPT(struct proxy* proxy, struct client* c,
   else if (cmd->args[1].size == 4 && !memcmp(cmd->args[1].data, "LOAD", 4))
     redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_IDENTICAL_RESPONSES);
   else if (cmd->args[1].size == 6 && !memcmp(cmd->args[1].data, "EXISTS", 6))
-    redis_command_forward_all(proxy, c, cmd, CWAIT_COLLECT_RESPONSES);
+    redis_command_forward_all(proxy, c, cmd, CWAIT_MODIFY_SCRIPT_EXISTS_RESPONSE);
   else {
     proxy_send_client_string_response(c,
         "PROXYERROR unsupported subcommand", RESPONSE_ERROR);

@@ -123,7 +123,7 @@ SADD              -- Yes        --
 SAVE              -- Yes        -- *6
 SCAN              -- Yes        -- *B
 SCARD             -- Yes        --
-SCRIPT EXISTS     -- Yes        -- *5
+SCRIPT EXISTS     -- Yes        -- *D
 SCRIPT FLUSH      -- Yes        -- *6
 SCRIPT KILL       -- No         --
 SCRIPT LOAD       -- Yes        -- *6
@@ -226,6 +226,8 @@ Notes:
       - rspsent: number of responses sent to this client.
       - rspchain: response chain length (effectively, the number of backend
         responses that this client is waiting on).
+*D -- 1 will be returned for a script only if it exists on all backends - if it
+      is missing on one or more backends, 0 is returned.
 
 
 redis-shatter also implements some commands that aren't part of the official
