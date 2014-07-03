@@ -831,6 +831,28 @@ num_responses_received:%d\n\
   resource_delete_ref(cmd, backend_cmd);
 }
 
+void redis_command_ROLE(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+
+  struct response* resp = response_create(cmd, RESPONSE_MULTI, 2);
+  resp->multi_value.fields[0] = response_printf(resp, RESPONSE_DATA, "proxy");
+  resp->multi_value.fields[1] = response_create(resp, RESPONSE_MULTI,
+      proxy->num_backends);
+
+  int x;
+  struct response* backends_resp = resp->multi_value.fields[1];
+  for (x = 0; x < proxy->num_backends; x++) {
+    if (proxy->backends[x])
+      backends_resp->multi_value.fields[x] = response_printf(resp,
+          RESPONSE_DATA, "%s", proxy->backends[x]->name);
+    else
+      backends_resp->multi_value.fields[x] = response_printf(resp,
+          RESPONSE_DATA, "NULL");
+  }
+  proxy_send_client_response(c, resp);
+  resource_delete_ref(cmd, resp);
+}
+
 void redis_command_QUIT(struct proxy* proxy, struct client* c,
     struct command* cmd) {
   c->should_disconnect = 1;
@@ -1435,6 +1457,7 @@ struct {
   {"RENAME",            redis_command_forward_by_keys_1},           // key newkey - Rename a key
   {"RENAMENX",          redis_command_forward_by_keys_1},           // key newkey - Rename a key, only if the new key does not exist
   {"RESTORE",           redis_command_forward_by_key1},             // key ttl serialized-value - Create a key using the provided serialized value, previously obtained using DUMP.
+  {"ROLE",              redis_command_ROLE},                        // - Return the role of the instance in the context of replication
   {"RPOP",              redis_command_forward_by_key1},             // key - Remove and get the last element in a list
   {"RPOPLPUSH",         redis_command_forward_by_keys_1},           // source destination - Remove the last element in a list, append it to another list and return it
   {"RPUSH",             redis_command_forward_by_key1},             // key value [value ...] - Append one or multiple values to a list
