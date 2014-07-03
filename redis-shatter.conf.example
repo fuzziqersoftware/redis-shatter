@@ -14,14 +14,17 @@
 
 # List of backends. Order doesn't matter here. Keys are distributed over these
 # backends using a ketama continuum with the FNV1A_64 hash function.
---backend=localhost:6381
---backend=localhost:6382
---backend=localhost:6383
---backend=localhost:6384
---backend=localhost:6385
---backend=localhost:6386
---backend=localhost:6387
---backend=localhost:6388
+# Backends can have names that are independent of their network location. This
+# can be used to relocate backends while keeping the same key distribution.
+# Syntax: --backend=hostname:port OR --backend=hostname:port@name
+--backend=localhost:6381@shard1
+--backend=localhost:6382@shard2
+--backend=localhost:6383@shard3
+--backend=localhost:6384@shard4
+--backend=localhost:6385@shard5
+--backend=localhost:6386@shard6
+--backend=localhost:6387@shard7
+--backend=localhost:6388@shard8
 
 # Hash field delimiters. These can be used to make sure keys hash to the same
 # backend.

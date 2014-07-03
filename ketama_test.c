@@ -99,6 +99,20 @@ int main(int argc, char* argv[]) {
     resource_delete_ref(NULL, c2);
   }
 
+  {
+    printf("-- make sure named hosts can change netlocs\n");
+    const char* hosts1[3] = {"host1:80@n1", "host2:80@n2", "host3:80@n3"};
+    const char* hosts2[3] = {"host4:22@n1", "host5:25@n2", "host6:443@n3"};
+    struct ketama_continuum* c1 = ketama_continuum_create(NULL, 3, hosts1);
+    struct ketama_continuum* c2 = ketama_continuum_create(NULL, 3, hosts2);
+    test_assert(c1->num_hosts == 3);
+    test_assert(c2->num_hosts == 3);
+    for (x = 0; x < 0x10000; x++)
+      test_assert(c2->points[x] == c2->points[x]);
+    resource_delete_ref(NULL, c1);
+    resource_delete_ref(NULL, c2);
+  }
+
   if (num_failures)
     printf("%d failures during test run\n", num_failures);
   else

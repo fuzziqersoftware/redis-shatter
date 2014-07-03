@@ -36,6 +36,13 @@ static uint16_t ketama_server_hash(const void* key, int64_t size, uint16_t pt) {
   return fnv1a_64_continue(key, size, fnv1a_64_start(&pt, sizeof(uint16_t)));
 }
 
+static const char* name_for_host(const char* netloc_str) {
+  const char* at = strchr(netloc_str, '@');
+  if (at)
+    return at + 1;
+  return netloc_str;
+}
+
 struct ketama_continuum* ketama_continuum_create(void* resource_parent,
     int num_hosts, const char** hosts) {
 
@@ -68,7 +75,7 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
       if (min_host == -1)
         min_host = y;
       else {
-        if (strcmp(hosts[y], hosts[min_host]) < 0)
+        if (strcmp(name_for_host(hosts[y]), name_for_host(hosts[min_host])) < 0)
           min_host = y;
       }
     }
@@ -77,8 +84,10 @@ struct ketama_continuum* ketama_continuum_create(void* resource_parent,
     strcpy(host_ptr, hosts[min_host]);
     c->hosts[min_host] = host_ptr;
 
+    const char* this_host_name = name_for_host(host_ptr);
     for (y = 0; y < POINTS_PER_HOST; y++)
-      c->points[ketama_server_hash(host_ptr, strlen(host_ptr), y)] = min_host;
+      c->points[ketama_server_hash(this_host_name, strlen(this_host_name), y)] =
+          min_host;
 
     host_ptr += (strlen(host_ptr) + 1);
   }

@@ -1,4 +1,3 @@
-- Add node names for consistent hashing (in case hostnames/addrs change).
 - Use a better logging framework.
 - Add the ability to use multiple connections concurrently for each backend.
 - Deal with backend failures in a more graceful manner.

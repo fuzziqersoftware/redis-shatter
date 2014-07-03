@@ -626,7 +626,7 @@ void redis_command_BACKEND(struct proxy* proxy, struct client* c,
 
   struct response* resp = NULL;
   if (b)
-    resp = response_printf(cmd, RESPONSE_DATA, "%s:%d", b->host, b->port);
+    resp = response_printf(cmd, RESPONSE_DATA, "%s", b->name);
   else
     resp = response_printf(cmd, RESPONSE_DATA, "NULL");
   proxy_send_client_response(c, resp);
@@ -655,8 +655,8 @@ void redis_command_BACKENDS(struct proxy* proxy, struct client* c,
   int x;
   for (x = 0; x < proxy->num_backends; x++) {
     if (proxy->backends[x])
-      resp->multi_value.fields[x] = response_printf(resp, RESPONSE_DATA,
-          "%s:%d", proxy->backends[x]->host, proxy->backends[x]->port);
+      resp->multi_value.fields[x] = response_printf(resp, RESPONSE_DATA, "%s",
+          proxy->backends[x]->name);
     else
       resp->multi_value.fields[x] = response_printf(resp, RESPONSE_DATA,
           "NULL");

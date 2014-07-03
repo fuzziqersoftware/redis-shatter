@@ -40,7 +40,13 @@ struct backend* backend_create(void* resource_parent, const char* host,
     b->host = strdup(host);
     b->port = port;
   }
-  sprintf(b->name, "%s:%d", b->host, b->port);
+
+  // if the backend has a given name, append it
+  const char* at = strchr(host, '@');
+  if (at)
+    sprintf(b->name, "%s:%d@%s", b->host, b->port, at + 1);
+  else
+    sprintf(b->name, "%s:%d", b->host, b->port);
 
   return b;
 }
