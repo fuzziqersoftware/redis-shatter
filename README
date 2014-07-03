@@ -247,4 +247,6 @@ BACKENDS
 
 FORWARD <num> <command> [args...]
   Forwards the given command directly to the given backend. You can use this in
-  lieu of connecting directly to the backend.
+  lieu of connecting directly to the backend. This command shares the backend
+  connections with all other clients, so forwarding commands that affect
+  connection state like MULTI or SELECT will probably break things.
