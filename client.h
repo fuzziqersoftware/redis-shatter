@@ -59,6 +59,7 @@ struct client {
   struct resource res;
 
   char name[CLIENT_NAME_LENGTH];
+  int should_disconnect;
 
   struct client* prev;
   struct client* next;

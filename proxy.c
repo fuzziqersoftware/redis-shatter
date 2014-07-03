@@ -304,6 +304,24 @@ void proxy_serve(struct proxy* proxy) {
     proxy_print(proxy, 0);
 }
 
+static void proxy_disconnect_client(struct proxy* proxy, struct client* c) {
+  if (c->next)
+    c->next->prev = c->prev;
+  else
+    proxy->client_chain_tail = c->prev;
+  if (c->prev)
+    c->prev->next = c->next;
+  else
+    proxy->client_chain_head = c->next;
+  proxy->num_clients--;
+
+  if (c->bev)
+    bufferevent_free(c->bev);
+  c->bev = NULL;
+
+  resource_delete_ref(proxy, c);
+}
+
 void proxy_print(const struct proxy* proxy, int indent) {
   int x;
   if (indent < 0)
@@ -811,6 +829,11 @@ num_responses_received:%d\n\
       CWAIT_FORWARD_RESPONSE, backend_cmd, proxy->num_backends);
   proxy_try_send_backend_command(b, e, backend_cmd);
   resource_delete_ref(cmd, backend_cmd);
+}
+
+void redis_command_QUIT(struct proxy* proxy, struct client* c,
+    struct command* cmd) {
+  c->should_disconnect = 1;
 }
 
 void redis_command_PING(struct proxy* proxy, struct client* c,
@@ -1328,7 +1351,6 @@ struct {
   {"PUBSUB",            redis_command_unimplemented}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
   {"PUBLISH",           redis_command_unimplemented}, // channel message - Post a message to a channel
   {"PUNSUBSCRIBE",      redis_command_unimplemented}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
-  {"QUIT",              redis_command_unimplemented}, // - Close the connection
   {"SELECT",            redis_command_unimplemented}, // index - Change the selected database for the current connection
   {"SHUTDOWN",          redis_command_unimplemented}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
   {"SLAVEOF",           redis_command_unimplemented}, // host port - Make the server a slave of another instance, or promote it as master
@@ -1408,6 +1430,7 @@ struct {
   {"PING",              redis_command_PING},                        // - Ping the server
   {"PSETEX",            redis_command_forward_by_key1},             // key milliseconds value - Set the value and expiration in milliseconds of a key
   {"PTTL",              redis_command_forward_by_key1},             // key - Get the time to live for a key in milliseconds
+  {"QUIT",              redis_command_QUIT},                        // - Close the connection
   {"RANDOMKEY",         redis_command_RANDOMKEY},                   // - Return a random key from the keyspace
   {"RENAME",            redis_command_forward_by_keys_1},           // key newkey - Rename a key
   {"RENAMENX",          redis_command_forward_by_keys_1},           // key newkey - Rename a key, only if the new key does not exist
@@ -1574,6 +1597,8 @@ static void proxy_on_client_input(struct bufferevent *bev, void *ctx) {
     proxy->num_commands_received++;
     proxy_handle_client_command(proxy, c, cmd);
     resource_delete_ref(c, cmd);
+    if (c->should_disconnect)
+      proxy_disconnect_client(proxy, c);
   }
   if (c->parser->error)
     printf("warning: parse error in client stream %s (%d)\n", c->name, c->parser->error);
@@ -1590,20 +1615,7 @@ static void proxy_on_client_error(struct bufferevent *bev, short events,
         evutil_socket_error_to_string(err));
   }
   if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-    if (c->next)
-      c->next->prev = c->prev;
-    else
-      proxy->client_chain_tail = c->prev;
-    if (c->prev)
-      c->prev->next = c->next;
-    else
-      proxy->client_chain_head = c->next;
-    proxy->num_clients--;
-
-    bufferevent_free(c->bev);
-    c->bev = NULL;
-
-    resource_delete_ref(proxy, c);
+    proxy_disconnect_client(proxy, c);
   }
 }
 
