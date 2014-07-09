@@ -196,6 +196,10 @@ void resource_delete_ref(void* _r, void* _target) {
 
 
 
+struct resource* resource_create_sentinel(void* parent) {
+  return resource_malloc(parent, 0, free);
+}
+
 struct resource* resource_malloc(void* parent, int size, void* free_fn) {
   size += sizeof(struct resource);
   struct resource* r = (struct resource*)malloc(size);

@@ -28,6 +28,7 @@ void resource_delete_ref(void* r, void* target);
 
 void print_resource_tree(void* root);
 
+struct resource* resource_create_sentinel(void* parent);
 struct resource* resource_malloc(void* parent, int size, void* free_fn);
 struct resource* resource_calloc(void* parent, int size, void* free_fn);
 struct resource* resource_strdup(void* parent, const char* s, void* free_fn);
