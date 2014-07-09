@@ -149,10 +149,14 @@ int responses_equal(const struct response* a, const struct response* b) {
       return (a->int_value == b->int_value);
 
     case RESPONSE_DATA:
+      if (a->data_value.size < 0 && b->data_value.size < 0)
+        return 1;
       return (a->data_value.size == b->data_value.size) &&
           !memcmp(a->data_value.data, b->data_value.data, a->data_value.size);
 
     case RESPONSE_MULTI: {}
+      if (a->multi_value.num_fields < 0 && b->multi_value.num_fields < 0)
+        return 1;
       if (a->multi_value.num_fields != b->multi_value.num_fields)
         return 0;
 
