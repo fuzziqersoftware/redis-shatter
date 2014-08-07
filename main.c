@@ -100,6 +100,13 @@ void execute_option(struct options* opt, const char* option) {
         strlen(&option[10]) + 1, free);
     strcpy(opt->backend_netlocs[opt->num_backends - 1], &option[10]);
 
+  } else if (!strncmp(option, "--disable-command=", 18)) {
+    if (!disable_command(&option[18])) {
+      printf("error: can\'t disable command \"%s\" since it already doesn\'t exist\n",
+          &option[18]);
+      opt->num_bad_arguments++;
+    }
+
   } else {
     printf("error: unrecognized option: \"%s\"\n", option);
     opt->num_bad_arguments++;

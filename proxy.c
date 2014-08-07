@@ -1533,6 +1533,18 @@ struct {
   {NULL, NULL}, // end marker
 };
 
+int disable_command(const char* command_name) {
+  int x, num_commands_disabled = 0;
+  for (x = 0; command_definitions[x].command_str; x++) {
+    if (!strcmp(command_name, command_definitions[x].command_str)) {
+      command_definitions[x].handler = NULL;
+      num_commands_disabled++;
+    }
+  }
+
+  return num_commands_disabled;
+}
+
 #define MAX_COMMANDS_PER_HASH_BUCKET 8
 
 static int8_t hash_to_num_commands[256];

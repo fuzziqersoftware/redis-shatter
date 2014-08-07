@@ -34,6 +34,7 @@ struct proxy {
   int (*index_for_key)(const struct proxy*, const void*, int64_t);
 };
 
+int disable_command(const char* command_name);
 int build_command_definitions();
 
 struct proxy* proxy_create(void* resource_parent, int listen_fd,
