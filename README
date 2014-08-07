@@ -53,8 +53,8 @@ DEL               -- Yes        --
 DISCARD           -- No         --
 DUMP              -- Yes        --
 ECHO              -- Yes        --
-EVAL              -- Yes        -- *2
-EVALSHA           -- Yes        -- *2
+EVAL              -- Yes        -- *2 *0
+EVALSHA           -- Yes        -- *2 *0
 EXEC              -- No         --
 EXISTS            -- Yes        --
 EXPIRE            -- Yes        --
@@ -186,6 +186,7 @@ ZSCORE            -- Yes        --
 ZUNIONSTORE       -- Yes        -- *2
 
 Notes:
+*0 -- Scripts that affect no keys will run on a random backend.
 *1 -- Distribution of random keys may not be exactly uniform. RANDOMKEY is
       implemented by choosing a random backend and sending RANDOMKEY to it, so
       if backend A has more keys than backend B, the probability of returning

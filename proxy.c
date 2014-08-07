@@ -1107,23 +1107,28 @@ void redis_command_EVAL(struct proxy* proxy, struct client* c,
 
   int64_t x, num_keys = 0;
   if (!parse_integer_field(cmd->args[2].data, cmd->args[2].size, &num_keys) ||
-      (num_keys < 1 || num_keys > cmd->num_args - 3)) {
+      (num_keys < 0 || num_keys > cmd->num_args - 3)) {
     proxy_send_client_string_response(c, "ERR key count is invalid",
         RESPONSE_ERROR);
     return;
   }
 
   // check that the keys all hash to the same server
-  int backend_id = proxy->index_for_key(proxy, cmd->args[3].data,
-      cmd->args[3].size);
-  for (x = 1; x < num_keys; x++) {
-    if (proxy->index_for_key(proxy, cmd->args[x + 3].data, cmd->args[x + 3].size)
-        != backend_id) {
+  int backend_id = -1;
+  for (x = 0; x < num_keys; x++) {
+    if (backend_id == -1)
+      backend_id = proxy->index_for_key(proxy, cmd->args[x + 3].data,
+          cmd->args[x + 3].size);
+    else if (proxy->index_for_key(proxy, cmd->args[x + 3].data,
+        cmd->args[x + 3].size) != backend_id) {
       proxy_send_client_string_response(c,
           "PROXYERROR keys are on different backends", RESPONSE_ERROR);
       return;
     }
   }
+
+  if (backend_id == -1)
+    backend_id = rand() % proxy->num_backends;
 
   struct backend* b = proxy_backend_for_index(proxy, backend_id);
   struct client_expected_response* e = client_expect_response(c,
