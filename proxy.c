@@ -1264,7 +1264,7 @@ void redis_command_DEBUG(struct proxy* proxy, struct client* c,
     redis_command_forward_by_key_index(proxy, c, cmd, 2);
 }
 
-void redis_command_RANDOMKEY(struct proxy* proxy, struct client* c,
+void redis_command_forward_random(struct proxy* proxy, struct client* c,
     struct command* cmd) {
 
   struct backend* b = proxy_backend_for_index(proxy, rand() % proxy->num_backends);
@@ -1368,6 +1368,7 @@ struct {
   {"BLPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
   {"BRPOP",             redis_command_unimplemented}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
   {"BRPOPLPUSH",        redis_command_unimplemented}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
+  {"CLUSTER",           redis_command_unimplemented}, // SLOTS - Get array of Cluster slot to node mappings
   {"DISCARD",           redis_command_unimplemented}, // - Discard all commands issued after MULTI
   {"EXEC",              redis_command_unimplemented}, // - Execute all commands issued after MULTI
   {"MONITOR",           redis_command_unimplemented}, // - Listen for all requests received by the server in real time
@@ -1375,8 +1376,8 @@ struct {
   {"MSETNX",            redis_command_unimplemented}, // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist
   {"MULTI",             redis_command_unimplemented}, // - Mark the start of a transaction block
   {"PSUBSCRIBE",        redis_command_unimplemented}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
-  {"PUBSUB",            redis_command_unimplemented}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
   {"PUBLISH",           redis_command_unimplemented}, // channel message - Post a message to a channel
+  {"PUBSUB",            redis_command_unimplemented}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
   {"PUNSUBSCRIBE",      redis_command_unimplemented}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
   {"SELECT",            redis_command_unimplemented}, // index - Change the selected database for the current connection
   {"SHUTDOWN",          redis_command_unimplemented}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
@@ -1395,6 +1396,7 @@ struct {
   {"BITOP",             redis_command_forward_by_keys_2},            // operation destkey key [key ...] - Perform bitwise operations between strings
   {"BITPOS",            redis_command_forward_by_key1},              // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
   {"CLIENT",            redis_command_CLIENT},                       // KILL ip:port / LIST / GETNAME / SETNAME name
+  {"COMMAND",           redis_command_forward_random},               // [COUNT | GETKEYS | INFO] - Get information about Redis commands
   {"CONFIG",            redis_command_all_collect_responses},        // GET parameter / REWRITE / SET param value / RESETSTAT
   {"DBSIZE",            redis_command_DBSIZE},                       // - Return the number of keys in the selected database
   {"DEBUG",             redis_command_DEBUG},                        // OBJECT key - Get debugging information about a key
@@ -1458,7 +1460,7 @@ struct {
   {"PSETEX",            redis_command_forward_by_key1},              // key milliseconds value - Set the value and expiration in milliseconds of a key
   {"PTTL",              redis_command_forward_by_key1},              // key - Get the time to live for a key in milliseconds
   {"QUIT",              redis_command_QUIT},                         // - Close the connection
-  {"RANDOMKEY",         redis_command_RANDOMKEY},                    // - Return a random key from the keyspace
+  {"RANDOMKEY",         redis_command_forward_random},               // - Return a random key from the keyspace
   {"RENAME",            redis_command_forward_by_keys_1},            // key newkey - Rename a key
   {"RENAMENX",          redis_command_forward_by_keys_1},            // key newkey - Rename a key, only if the new key does not exist
   {"RESTORE",           redis_command_forward_by_key1},              // key ttl serialized-value - Create a key using the provided serialized value, previously obtained using DUMP.

@@ -36,6 +36,11 @@ CLIENT GETNAME    -- Yes        --
 CLIENT KILL       -- No         --
 CLIENT LIST       -- Yes        -- *C
 CLIENT SETNAME    -- Yes        --
+CLUSTER SLOTS     -- No         --
+COMMAND           -- Yes        -- *E
+COMMAND COUNT     -- Yes        -- *E
+COMMAND GETKEYS   -- Yes        -- *E
+COMMAND INFO      -- Yes        -- *E
 CONFIG GET        -- Yes        -- *5
 CONFIG RESETSTAT  -- Yes        -- *6
 CONFIG SET        -- Yes        -- *6
@@ -228,6 +233,10 @@ Notes:
         responses that this client is waiting on).
 *D -- 1 will be returned for a script only if it exists on all backends - if it
       is missing on one or more backends, 0 is returned.
+*E -- These commands are implemented by forwarding them to a random backend. If
+      the backends are not configured identically (i.e. some have rename-command
+      directives in their configs and some don't) then the results may differ
+      between subsequent calls.
 
 
 redis-shatter also implements some commands that aren't part of the official
