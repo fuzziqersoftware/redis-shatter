@@ -1,5 +1,7 @@
-#include <stdlib.h>
+#include <inttypes.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "debug.h"
 #include "resource.h"
@@ -165,7 +167,7 @@ void client_expected_response_print(const struct client_expected_response* e, in
       break;
 
     case CWAIT_SUM_INT_RESPONSES:
-      printf("int_sum=%lld]", e->int_sum);
+      printf("int_sum=%" PRId64 "]", e->int_sum);
       break;
 
     case CWAIT_COMBINE_MULTI_RESPONSES:

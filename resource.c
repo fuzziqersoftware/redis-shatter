@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <inttypes.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -70,7 +71,7 @@ static void resource_delete(void* _r, int num_explicit_refs) {
 
   if (r->num_inbound_refs != num_explicit_refs) {
     // oh fuck
-    printf("error: deleting resource %p with refcount == %llu\n", r,
+    printf("error: deleting resource %p with refcount == %" PRIu64 "\n", r,
         r->num_inbound_refs);
     debug_abort_stacktrace();
   }

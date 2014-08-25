@@ -1,7 +1,9 @@
 #include <event2/bufferevent.h>
 #include <event2/buffer.h>
+#include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
@@ -194,14 +196,14 @@ void response_print(const struct response* resp, int indent) {
       break;
 
     case RESPONSE_INTEGER:
-      printf("response@%p[type=INTEGER, int_value=%lld]", resp, resp->int_value);
+      printf("response@%p[type=INTEGER, int_value=%" PRId64 "]", resp, resp->int_value);
       break;
 
     case RESPONSE_DATA:
       if (resp->data_value.size < 0)
         printf("response@%p[type=DATA, null]\n", resp);
       else {
-        printf("response@%p[type=DATA, size=%lld, data_preview=", resp, resp->data_value.size);
+        printf("response@%p[type=DATA, size=%" PRId64 ", data_preview=", resp, resp->data_value.size);
         for (x = 0; x < resp->data_value.size; x++) {
           int ch = *((char*)resp->data_value.data + x);
           if (ch < 0x20 || ch > 0x7F)
@@ -217,7 +219,7 @@ void response_print(const struct response* resp, int indent) {
       if (resp->data_value.size < 0)
         printf("response@%p[type=MULTI, null]", resp);
       else {
-        printf("response@%p[type=MULTI, num_fields=%lld, fields=[\n", resp, resp->multi_value.num_fields);
+        printf("response@%p[type=MULTI, num_fields=%" PRId64 ", fields=[\n", resp, resp->multi_value.num_fields);
         for (x = 0; x < resp->multi_value.num_fields; x++) {
           response_print(resp->multi_value.fields[x], indent + 1);
           printf(",\n");
@@ -720,7 +722,7 @@ void response_write_int(struct evbuffer* buf, int64_t value,
     printf("OUTPUT RESPONSE TO CLIENT: INTEGER[%c%lld]\n", sentinel, value);
 #endif
 
-  evbuffer_add_printf(buf, "%c%lld\r\n", sentinel, value);
+  evbuffer_add_printf(buf, "%c%" PRId64 "\r\n", sentinel, value);
 }
 
 void response_write(struct evbuffer* buf, const struct response* resp) {
