@@ -1,21 +1,28 @@
 redis-shatter is a sharding proxy for the redis protocol, inspired by twemproxy
-(https://github.com/twitter/twemproxy). I undertook this as a personal project
-in order to learn more about redis, libevent, and networking. I see it as a
-proof-of-concept and it's probably not production-ready.
-
-Documentation on how to actually use this thing is in the example configuration
-file, redis-shatter.conf.example.
+(https://github.com/twitter/twemproxy). Documentation on how to actually use
+this is in the example configuration file, redis-shatter.conf.example.
 
 In essence, this proxy appears like a standard redis server to other hosts, but
 doesn't store any data locally - instead, keys are distributed between multiple
 backends (other hosts that speak the redis protocol, usually redis-servers).
 This can give useful speed, reliability, and scalability benefits, but has some
 significant drawbacks as well:
-- Command execution requires another network hop. This issue can be mitigated
-  using pipelining.
+- Command execution requires another network hop, which comes with a performance
+  penalty. Clients that pipeline commands are somewhat insulated from this
+  issue.
 - Complex commands that affect multiple keys cannot be run efficiently unless
   the affected keys are all on the same backend. There are inefficient ways to
   run these commands, but these are not implemented by redis-shatter.
+
+redis-shatter in front of 8 redis-server instances on the same machine was about
+60% as fast as a single redis-server itself, according to side-by-side
+redis-benchmark tests. Very little performance optimization work has been done,
+so there's probably a lot of room for improvement here.
+
+Unlike other similar projects, redis-shatter's behavior sometimes deviates from
+the standard Redis protocol in order to implement reasonable behavior for
+complex or administrative commands. These deviations are explained in the notes
+in the below table.
 
 
 List of supported commands:
@@ -32,35 +39,44 @@ BITPOS            -- Yes        --
 BLPOP             -- No         --
 BRPOP             -- No         --
 BRPOPLPUSH        -- No         --
-CLIENT GETNAME    -- Yes        --
+CLIENT GETNAME    -- Yes        -- *F
 CLIENT KILL       -- No         --
 CLIENT LIST       -- Yes        -- *C
-CLIENT SETNAME    -- Yes        --
-CLUSTER SLOTS     -- No         --
+CLIENT PAUSE      -- No         --
+CLIENT REPLY      -- No         --
+CLIENT SETNAME    -- No         -- *F
+CLUSTER           -- No         -- *H
 COMMAND           -- Yes        -- *E
 COMMAND COUNT     -- Yes        -- *E
 COMMAND GETKEYS   -- Yes        -- *E
 COMMAND INFO      -- Yes        -- *E
 CONFIG GET        -- Yes        -- *5
 CONFIG RESETSTAT  -- Yes        -- *6
+CONFIG REWRITE    -- Yes        -- *6
 CONFIG SET        -- Yes        -- *6
 DBSIZE            -- Yes        -- *A
 DEBUG OBJECT      -- Yes        --
 DEBUG SEGFAULT    -- No         --
 DECR              -- Yes        --
 DECRBY            -- Yes        --
-DEL               -- Yes        --
+DEL               -- Yes        -- *4
 DISCARD           -- No         --
 DUMP              -- Yes        --
 ECHO              -- Yes        --
-EVAL              -- Yes        -- *2 *0
-EVALSHA           -- Yes        -- *2 *0
+EVAL              -- Yes        -- *0 *2
+EVALSHA           -- Yes        -- *0 *2 *G
 EXEC              -- No         --
 EXISTS            -- Yes        --
 EXPIRE            -- Yes        --
 EXPIREAT          -- Yes        --
 FLUSHALL          -- Yes        -- *6
 FLUSHDB           -- Yes        -- *6 *7
+GEOADD            -- Yes        --
+GEODIST           -- Yes        --
+GEOHASH           -- Yes        --
+GEOPOS            -- Yes        --
+GEORADIUS         -- Yes        -- *2
+GEORADIUSBYMEMBER -- Yes        -- *2
 GET               -- Yes        --
 GETBIT            -- Yes        --
 GETRANGE          -- Yes        --
@@ -78,12 +94,13 @@ HMSET             -- Yes        --
 HSCAN             -- Yes        --
 HSET              -- Yes        --
 HSETNX            -- Yes        --
+HSTRLEN           -- Yes        --
 HVALS             -- Yes        --
 INCR              -- Yes        --
 INCRBY            -- Yes        --
 INCRBYFLOAT       -- Yes        --
 INFO              -- Yes        -- *8
-KEYS              -- Yes        -- *9
+KEYS              -- Yes        -- *9 *A
 LASTSAVE          -- Yes        -- *5
 LINDEX            -- Yes        --
 LINSERT           -- Yes        --
@@ -100,7 +117,7 @@ MIGRATE           -- Yes        --
 MONITOR           -- No         --
 MOVE              -- No         --
 MSET              -- Yes        -- *4
-MSETNX            -- No         --
+MSETNX            -- Yes        -- *2
 MULTI             -- No         --
 OBJECT            -- Yes        --
 PERSIST           -- Yes        --
@@ -114,9 +131,12 @@ PSETEX            -- Yes        --
 PSUBSCRIBE        -- No         --
 PTTL              -- Yes        --
 PUBLISH           -- No         --
+PUBSUB            -- No         --
 PUNSUBSCRIBE      -- No         --
-QUIT              -- No         --
+QUIT              -- Yes        --
 RANDOMKEY         -- Yes        -- *1
+READONLY          -- No         --
+READWRITE         -- No         --
 RENAME            -- Yes        -- *2
 RENAMENX          -- Yes        -- *2
 RESTORE           -- Yes        --
@@ -126,11 +146,12 @@ RPUSH             -- Yes        --
 RPUSHX            -- Yes        --
 SADD              -- Yes        --
 SAVE              -- Yes        -- *6
-SCAN              -- Yes        -- *B
+SCAN              -- Yes        -- *A *B
 SCARD             -- Yes        --
+SCRIPT DEBUG      -- No         --
 SCRIPT EXISTS     -- Yes        -- *D
 SCRIPT FLUSH      -- Yes        -- *6
-SCRIPT KILL       -- No         --
+SCRIPT KILL       -- No         -- *H
 SCRIPT LOAD       -- Yes        -- *6
 SDIFF             -- Yes        -- *2
 SDIFFSTORE        -- Yes        -- *2
@@ -140,11 +161,11 @@ SETBIT            -- Yes        --
 SETEX             -- Yes        --
 SETNX             -- Yes        --
 SETRANGE          -- Yes        --
-SHUTDOWN          -- No         --
+SHUTDOWN          -- Yes        -- *6
 SINTER            -- Yes        -- *2
 SINTERSTORE       -- Yes        -- *2
 SISMEMBER         -- Yes        --
-SLAVEOF           -- No         --
+SLAVEOF           -- No         -- *H
 SLOWLOG           -- Yes        -- *5
 SMEMBERS          -- Yes        --
 SMOVE             -- Yes        -- *2
@@ -157,12 +178,16 @@ STRLEN            -- Yes        --
 SUBSCRIBE         -- No         --
 SUNION            -- Yes        -- *2
 SUNIONSTORE       -- Yes        -- *2
+SWAPDB            -- No         --
 SYNC              -- No         --
 TIME              -- Yes        -- *6
+TOUCH             -- Yes        --
 TTL               -- Yes        --
 TYPE              -- Yes        --
+UNLINK            -- Yes        -- *4
 UNSUBSCRIBE       -- No         --
 UNWATCH           -- No         --
+WAIT              -- No         --
 WATCH             -- No         --
 ZADD              -- Yes        --
 ZCARD             -- Yes        --
@@ -179,6 +204,7 @@ ZREMRANGEBYLEX    -- Yes        --
 ZREMRANGEBYRANK   -- Yes        --
 ZREMRANGEBYSCORE  -- Yes        --
 ZREVRANGE         -- Yes        --
+ZREVRANGEBYLEX    -- Yes        --
 ZREVRANGEBYSCORE  -- Yes        --
 ZREVRANK          -- Yes        --
 ZSCAN             -- Yes        --
@@ -193,57 +219,65 @@ Notes:
       each key from backend B is higher.
 *2 -- The affected keys must all be on the same backend. If they aren't, the
       command fails with PROXYERROR.
-*3 -- Shatter does not check that all the affected keys are on the same backend;
-      the application has to do this itself. This may be fixed in the future.
+*3 -- The proxy does not check that all the affected keys are on the same
+      backend; the application has to do this itself. (This is because complex
+      patterns may be given in e.g. the GET clause.)
 *4 -- These commands are atomic only on each backend; they are not atomic across
       all backends.
-*5 -- Response format is different than redis-server - the proxy returns a multi
-      response with one field per backend.
+*5 -- The proxy's response format is different than that of Redis - the proxy
+      returns a multi response with one field per backend.
 *6 -- These commands are forwarded to all backends.
-*7 -- Since redis-shatter doesn't support multiple redis DBs, FLUSHDB is
-      essentially equivalent to FLUSHALL.
+*7 -- Since the proxy doesn't support multiple redis DBs, FLUSHDB is essentially
+      equivalent to FLUSHALL.
 *8 -- INFO syntax is different from what redis-server expects. These are the
       valid forms of the INFO command in redis-shatter:
       - INFO - return proxy information
-      - INFO BACKEND <num> - return proxy stats for the specified backend
-      - INFO <num> [section] - send INFO to a specific backend
-*9 -- May be slow and consume lots of memory if run on large datasets. Keys may
-      appear multiple times or be inaccessible through redis-shatter if they
-      exist on the wrong backend - for example, if 'x' belongs on backend 3 but
-      exists on backends 5 and 3, then 'x' will appear twice in the KEYS result.
-      If 'x' exists on backend 5 and not 3, then 'x' will appear once in the
-      KEYS result but 'GET x' will return nil.
-*A -- Keys may be double-counted if they exist on the wrong backend - for
-      example, if 'x' belongs on backend 3 but exists on backends 5 and 3, then
-      'x' will be counted twice. If 'x' exists on backend 5 and not 3, then 'x'
-      will be counted once but will not be accessible through redis-shatter.
-*B -- Keys may be returned multiple times if they exist on the wrong backend -
-      for example, if 'x' belongs on backend 3 but exists on backends 5 and 3,
-      then 'x' may be returned twice. If 'x' exists on backend 5 and not 3, then
-      'x' may be returned but will not be accessible through redis-shatter. The
-      cursor format is also not a single integer; rather, it's a colon-separated
-      pair of integers. The only exceptions are the initial and final cursors,
-      which are still "0" to conform to protocol.
+      - INFO BACKEND <backend-name> - return proxy stats for a backend
+      - INFO <backend-name> [section] - send INFO to a specific backend and
+        return its response verbatim
+      For the first two forms, the response format is different as well, but
+      should be mostly self-explanatory. The third form is equivalent to the
+      command FORWARD <backend-name> INFO [section].
+*9 -- May be slow and consume lots of memory if run on large datasets. It's
+      almost always better to use SCAN instead.
+*A -- Keys may be considered or returned multiple times or be inaccessible
+      through the proxy if they exist on the wrong backend. For example, if 'x'
+      belongs on backend 3 but exists on backends 5 and 3, then 'x' will appear
+      twice in the KEYS or SCAN results, or will be double-counted when running
+      DBSIZE. If 'x' exists on backend 5 and not 3, then 'x' will appear once in
+      the KEYS/SCAN results but 'GET x' will return nil.
+*B -- SCAN over the entire keyspace is implemented by scanning on each backend
+      in turn. To keep track of which backend the client is currently
+      considering, the cursor format is not a single integer; rather, it's a
+      colon-separated pair of integers. The only exceptions are the initial and
+      final cursors, which are still "0" to conform to protocol.
 *C -- The returned fields are different from redis-server. They are:
-      - addr: the client's ip:port string.
-      - name: the client's name, in quotes (names can contain spaces).
-      - parser: 1 if the client has a parser (i.e. has sent any commands).
+      - name: the client's name (this includes the host:port string).
       - cmdrecv: number of commands received from this client.
       - rspsent: number of responses sent to this client.
-      - rspchain: response chain length (effectively, the number of backend
-        responses that this client is waiting on).
+      - rspchain: response chain length (the number of responses that haven't
+        been sent to the client yet because there isn't enough information to
+        generate the response - some backends haven't replied yet).
 *D -- 1 will be returned for a script only if it exists on all backends - if it
       is missing on one or more backends, 0 is returned.
 *E -- These commands are implemented by forwarding them to a random backend. If
       the backends are not configured identically (i.e. some have rename-command
       directives in their configs and some don't) then the results may differ
       between subsequent calls.
+*F -- Client names are immutable, and are likely to be unique to the proxy
+      instance serving the request.
+*G -- EVALSHA is more likely to fail in a sharded environment, since the script
+      needs to be loaded into all the backends' script caches for it to work on
+      arbitrary keys. Although EVAL implicitly loads the script into the script
+      cache, EVAL is only forwarded to one backend at a time. If you plan to run
+      a script many times on different keys, use SCRIPT LOAD first to load the
+      script on all backends at once.
+*H -- Note that any unsupported commands can still be run on individual backends
+      by using the FORWARD command, but be careful when doing this. See below.
 
 
 redis-shatter also implements some commands that aren't part of the official
-redis protocol.
-
-List of extra commands:
+redis protocol. These commands are:
 
 BACKEND <key>
   Returns the name of the backend on which the given key belongs.
@@ -252,11 +286,13 @@ BACKENDNUM <key>
   Returns the number of the backend on which the given key belongs.
 
 BACKENDS
-  Returns a list of all backend names. The backends are in numbered order in
-  this list (the first is backend 0, the second is backend 1, and so on).
+  Returns a list of all backends. The items are formatted as "host:port@name".
 
-FORWARD <num> <command> [args...]
+FORWARD <backend-name> <command> [args...]
   Forwards the given command directly to the given backend. You can use this in
   lieu of connecting directly to the backend. This command shares the backend
   connections with all other clients, so forwarding commands that affect
-  connection state like MULTI or SELECT will probably break things.
+  connection state like MULTI or SELECT will cause misbehavior.
+
+PRINTSTATE
+  Prints the proxy's internal state to stderr.

@@ -1,12 +1,12 @@
-CC=gcc
-OBJECTS=debug.o resource.o client.o protocol.o backend.o main.o ketama.o network.o proxy.o
-CFLAGS=-g -Wall # -DDEBUG_COMMAND_IO # -DDEBUG_RESOURCES
-LDFLAGS=-levent
+CXX=g++
+OBJECTS=Protocol.o Proxy.o Main.o
+CXXFLAGS=-g -Wall -Werror -std=c++14
+LDFLAGS=-levent -lphosg -g -std=c++14
 EXECUTABLE=redis-shatter
 
-TESTS=resource_test ketama_test protocol_test functional_test
+TESTS=ProtocolTest FunctionalTest
 
-all: $(EXECUTABLE) test
+all: $(EXECUTABLE) $(TESTS)
 
 $(EXECUTABLE): $(OBJECTS)
 	g++ -o $(EXECUTABLE) $^ $(LDFLAGS)
@@ -14,17 +14,11 @@ $(EXECUTABLE): $(OBJECTS)
 test: $(TESTS)
 	./run_tests.sh
 
-protocol_test: protocol_test.o protocol.o resource.o debug.o
-	g++ -o protocol_test $^ $(LDFLAGS)
+ProtocolTest: ProtocolTest.o Protocol.o
+	g++ -o ProtocolTest $^ $(LDFLAGS)
 
-resource_test: resource_test.o resource.o debug.o
-	g++ -o resource_test $^ $(LDFLAGS)
-
-ketama_test: ketama_test.o ketama.o resource.o debug.o
-	g++ -o ketama_test $^ $(LDFLAGS)
-
-functional_test: functional_test.o protocol.o network.o resource.o debug.o
-	g++ -o functional_test $^ $(LDFLAGS)
+FunctionalTest: FunctionalTest.o Protocol.o
+	g++ -o FunctionalTest $^ $(LDFLAGS)
 
 clean:
 	rm -rf *.dSYM *.o $(EXECUTABLE) $(TESTS) gmon.out

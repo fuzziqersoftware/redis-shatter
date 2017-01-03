@@ -1,11 +1,14 @@
 #!/bin/bash
 
 ./run_multiple_redis.sh &
-sleep 1
-./redis-shatter --config-file=redis-shatter.conf --parallel=1 &
+RUN_MULTI_PID=$?
 sleep 1
 
-for TEST in *_test
+./redis-shatter --config-file=redis-shatter.conf --parallel=1 &
+SHATTER_PID=$?
+sleep 1
+
+for TEST in *Test
 do
     ./$TEST
     if [ "$?" != "0" ]
@@ -14,7 +17,9 @@ do
     fi
 done
 
-ps aux | grep redis-shatter | grep -v grep | awk '{print $2;}' | xargs kill -TERM
+kill -TERM $SHATTER_PID
+# TODO: we should kill run_multiple_redis.sh directly too, and make it forward
+# the signal to the redis procs
 ps aux | grep redis-server | grep -v grep | grep -v xargs | awk '{print $2;}' | xargs kill -TERM
 
 echo -e "\n\n\n"
