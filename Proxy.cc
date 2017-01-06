@@ -331,14 +331,18 @@ int64_t Proxy::backend_index_for_key(const string& s) const {
   size_t hash_end_pos = (this->hash_end_delimiter >= 0) ?
       s.rfind(this->hash_end_delimiter) : 0;
 
+  if (hash_end_pos == string::npos) {
+    hash_end_pos = s.size();
+  }
+
   if (hash_begin_pos == string::npos) {
     hash_begin_pos = 0;
   } else {
     hash_begin_pos++; // don't include the delimiter itself
   }
 
-  if ((hash_end_pos == string::npos) || (hash_end_pos <= hash_begin_pos)) {
-    hash_end_pos = s.size();
+  if (hash_end_pos <= hash_begin_pos) {
+    hash_begin_pos = 0;
   }
 
   return this->ring.host_id_for_key(s.data() + hash_begin_pos,
