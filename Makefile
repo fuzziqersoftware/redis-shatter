@@ -11,7 +11,7 @@ all: $(EXECUTABLE) $(TESTS)
 $(EXECUTABLE): $(OBJECTS)
 	g++ -o $(EXECUTABLE) $^ $(LDFLAGS)
 
-test: $(TESTS)
+test: all
 	./run_tests.sh
 
 ProtocolTest: ProtocolTest.o Protocol.o

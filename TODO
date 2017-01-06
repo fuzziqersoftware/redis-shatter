@@ -1,6 +1,0 @@
-- Use a better logging framework.
-- Add the ability to use multiple connections concurrently for each backend.
-- Deal with backend failures in a more graceful manner.
-- Write functional/integration tests.
-- Implement configuration reloading.
-- Fix the makefile so it captures header dependencies properly.

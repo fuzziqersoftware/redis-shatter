@@ -2,6 +2,5 @@
 *.o
 gmon.out
 redis-shatter
-resource_test
-ketama_test
-redis_protocol_test
+ProtocolTest
+FunctionalTest
