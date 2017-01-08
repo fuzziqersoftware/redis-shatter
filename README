@@ -24,6 +24,9 @@ the standard Redis protocol in order to implement reasonable behavior for
 complex or administrative commands. These deviations are explained in the notes
 in the below table.
 
+Like most of my projects, this is only tested at a small scale (so far), so
+there may be unfound bugs or inefficiencies. Use at your own risk.
+
 
 List of supported commands:
 
