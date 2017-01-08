@@ -456,6 +456,12 @@ ResponseLink* Proxy::create_link(CollectionType type, Client* c) {
   return new ResponseLink(type, c);
 }
 
+ResponseLink* Proxy::create_error_link(Client* c, shared_ptr<Response> r) {
+  ResponseLink* l = new ResponseLink(CollectionType::ForwardResponse, c);
+  l->error_response = r;
+  return l;
+}
+
 struct evbuffer* Proxy::can_send_command(BackendConnection* conn,
     ResponseLink* l) {
   assert(!l->backend_conn_to_next_link.count(conn));
@@ -838,7 +844,7 @@ void Proxy::send_ready_response(ResponseLink* l) {
   }
 }
 
-void Proxy::process_client_response_link_chain(Client* c) {
+void Proxy::send_all_ready_responses(Client* c) {
   while (c->head_link && c->head_link->is_ready()) {
     this->send_ready_response(c->head_link);
 
@@ -940,24 +946,35 @@ void Proxy::handle_backend_response(BackendConnection* conn,
     // response will be ready but not sent, because it has to wait for A. in
     // this case, we'll send both A and B when A becomes ready.) this call sends
     // all ready responses at the beginning of the chain to the client.
-    this->process_client_response_link_chain(l->client);
+    this->send_all_ready_responses(l->client);
   }
 }
 
 void Proxy::handle_client_command(Client* c, shared_ptr<DataCommand> cmd) {
 
   if (cmd->args.size() <= 0) {
-    this->send_client_string_response(c, "ERR invalid command",
-        Response::Type::Error);
+    static shared_ptr<Response> invalid_command_response(new Response(
+        Response::Type::Error, "ERR invalid command"));
+    if (c->tail_link) {
+      this->create_error_link(c, invalid_command_response);
+      // TODO: is this call necessary? presumably if there were waiting links,
+      // they can't be ready at this point... right?
+      this->send_all_ready_responses(c);
+
+    } else {
+      this->send_client_response(c, invalid_command_response);
+    }
     return;
   }
 
+  // command names are case-insensitive; convert it to uppercase
   int x;
   char* arg0_str = const_cast<char*>(cmd->args[0].c_str());
   for (x = 0; x < cmd->args[0].size(); x++) {
     arg0_str[x] = toupper(arg0_str[x]);
   }
 
+  // find the appropriate handler
   command_handler handler;
   try {
     handler = this->handlers.at(arg0_str);
@@ -965,18 +982,39 @@ void Proxy::handle_client_command(Client* c, shared_ptr<DataCommand> cmd) {
     handler = &Proxy::command_default;
   }
 
+  // call the handler
+  ResponseLink* orig_tail_link = c->tail_link;
   try {
     (this->*handler)(c, cmd);
+
   } catch (const exception& e) {
-    string error_str = string_printf("PROXYERROR handler failed: %s", e.what());
-    this->send_client_string_response(c, error_str.data(), error_str.size(),
-        Response::Type::Error);
+    shared_ptr<Response> r(new Response(Response::Type::Error,
+        string_printf("PROXYERROR handler failed: %s", e.what())));
+
+    // if there's no tail_link, then there are no pending responses - just send
+    // the response directly
+    if (!c->tail_link) {
+      this->send_client_response(c, r);
+
+    // if tail_link is present and didn't change, then the handler didn't create
+    // a ResponseLink, but there are other responses waiting - add the error
+    // after the waiting responses to maintain correct ordering
+    } else if (c->tail_link == orig_tail_link) {
+      this->create_error_link(c, r);
+
+    // if tail_link is present and did change, then the handler created a
+    // ResponseLink representing this command - apply the error to it to
+    // maintain correct ordering. but if there's already an error, don't
+    // overwrite it
+    } else if (!c->tail_link->error_response.get()) {
+      c->tail_link->error_response = r;
+    }
   }
 
-  // need to check for complete responses here because the command handler
-  // probably produces a ResponseLink object, and this object can contain an
-  // error already (and if so, it's likely to be ready)
-  this->process_client_response_link_chain(c);
+  // check for complete responses. the command handler probably produces a
+  // ResponseLink object, and this object can contain an error already (and if
+  // so, it's likely to be ready)
+  this->send_all_ready_responses(c);
 }
 
 

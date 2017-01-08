@@ -247,6 +247,7 @@ private:
 
   // response linking
   ResponseLink* create_link(ResponseLink::CollectionType type, Client* c);
+  ResponseLink* create_error_link(Client* c, std::shared_ptr<Response> r);
   struct evbuffer* can_send_command(BackendConnection* conn, ResponseLink* l);
   void link_connection(BackendConnection* conn, ResponseLink* l);
   void send_command_and_link(BackendConnection* conn, ResponseLink* l,
@@ -258,7 +259,8 @@ private:
 
   // high-level output handlers
   void send_client_response(Client* c, const Response* r);
-  void send_client_response(Client* c, const std::shared_ptr<const Response>& r);
+  void send_client_response(Client* c,
+      const std::shared_ptr<const Response>& r);
   void send_client_string_response(Client* c, const char* s,
       Response::Type type);
   void send_client_string_response(Client* c, const std::string& s,
@@ -270,7 +272,7 @@ private:
 
   // high-level input handlers
   void send_ready_response(ResponseLink* l);
-  void process_client_response_link_chain(Client* c);
+  void send_all_ready_responses(Client* c);
   void handle_backend_response(BackendConnection* conn,
       std::shared_ptr<Response> r);
   void handle_client_command(Client* c, std::shared_ptr<DataCommand> cmd);
@@ -348,7 +350,9 @@ private:
   void command_ZACTIONSTORE(Client* c, std::shared_ptr<DataCommand> cmd);
 
   // handler index
-  typedef void (Proxy::*command_handler)(Client* c, std::shared_ptr<DataCommand> cmd);
+  typedef void (Proxy::*command_handler)(Client* c,
+      std::shared_ptr<DataCommand> cmd);
   std::unordered_map<std::string, command_handler> handlers;
-  static const std::unordered_map<std::string, command_handler> default_handlers;
+  static const std::unordered_map<std::string, command_handler>
+      default_handlers;
 };
