@@ -37,6 +37,7 @@ AUTH              -- No         --
 BGREWRITEAOF      -- Yes        -- *6
 BGSAVE            -- Yes        -- *6
 BITCOUNT          -- Yes        --
+BITFIELD          -- Yes        --
 BITOP             -- Yes        -- *2
 BITPOS            -- Yes        --
 BLPOP             -- No         --

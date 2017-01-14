@@ -1932,6 +1932,7 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"BGREWRITEAOF",      &Proxy::command_all_collect_status_responses}, // - Asynchronously rewrite the append-only file
   {"BGSAVE",            &Proxy::command_all_collect_status_responses}, // - Asynchronously save db to disk
   {"BITCOUNT",          &Proxy::command_forward_by_key_1},             // key [start] [end] - Count set bits in a string
+  {"BITFIELD",          &Proxy::command_forward_by_key_1},             // key [lots of options] - Perform integer arithmetic operations on a string
   {"BITOP",             &Proxy::command_forward_by_keys_2_all},        // operation destkey key [key ...] - Perform bitwise operations between strings
   {"BITPOS",            &Proxy::command_forward_by_key_1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
   {"CLIENT",            &Proxy::command_CLIENT},                       // KILL ip:port / LIST / GETNAME / SETNAME name / PAUSE / REPLY
