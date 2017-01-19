@@ -1533,15 +1533,6 @@ void Proxy::command_FORWARD(Client* c, shared_ptr<DataCommand> cmd) {
     return;
   }
 
-  int64_t backend_index = this->backend_index_for_argument(cmd->args[1]);
-  if (backend_index < 0) {
-    this->send_client_string_response(c, "ERR backend does not exist",
-        Response::Type::Error);
-    return;
-  }
-
-  BackendConnection& conn = this->backend_conn_for_index(backend_index);
-
   // send everything after the backend name/index to the backend
   ReferenceCommand backend_cmd(cmd->args.size() - 2);
   for (size_t x = 2; x < cmd->args.size(); x++) {
@@ -1549,8 +1540,28 @@ void Proxy::command_FORWARD(Client* c, shared_ptr<DataCommand> cmd) {
     backend_cmd.args.emplace_back(arg.data(), arg.size());
   }
 
-  ResponseLink* l = this->create_link(CollectionType::ForwardResponse, c);
-  this->send_command_and_link(&conn, l, &backend_cmd);
+  // if the backend name/index is blank, forward to all backends and return
+  // their responses verbatim
+  if (cmd->args[1].empty()) {
+    auto l = this->create_link(CollectionType::CollectResponses, c);
+    for (auto& backend_it : this->index_to_backend) {
+      BackendConnection& conn = this->backend_conn_for_index(backend_it.first);
+      this->send_command_and_link(&conn, l, &backend_cmd);
+    }
+
+  // else, forward to a specific backend
+  } else {
+    int64_t backend_index = this->backend_index_for_argument(cmd->args[1]);
+    if (backend_index < 0) {
+      this->send_client_string_response(c, "ERR backend does not exist",
+          Response::Type::Error);
+      return;
+    }
+
+    BackendConnection& conn = this->backend_conn_for_index(backend_index);
+    ResponseLink* l = this->create_link(CollectionType::ForwardResponse, c);
+    this->send_command_and_link(&conn, l, &backend_cmd);
+  }
 }
 
 void Proxy::command_GEORADIUS(Client* c, shared_ptr<DataCommand> cmd) {

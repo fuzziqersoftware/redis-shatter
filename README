@@ -293,10 +293,16 @@ BACKENDS
   Returns a list of all backends. The items are formatted as "host:port@name".
 
 FORWARD <backend-name> <command> [args...]
-  Forwards the given command directly to the given backend. You can use this in
-  lieu of connecting directly to the backend. This command shares the backend
-  connections with all other clients, so forwarding commands that affect
-  connection state like MULTI or SELECT will cause misbehavior.
+  Forwards the given command directly to the given backend and return its
+  response verbatim. You can use this in lieu of connecting directly to the
+  backend. This command shares the backend connections with all other clients,
+  so forwarding commands that affect connection state like MULTI or SELECT will
+  cause misbehavior.
+
+FORWARD "" <command> [args...]
+  Forwards the given command to all backends and returns a multi response
+  containing the backends' responses. As noted above, don't forward commands
+  that affect connection state.
 
 PRINTSTATE
   Prints the proxy's internal state to stderr.
