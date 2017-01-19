@@ -117,7 +117,7 @@ LREM              -- Yes        --
 LSET              -- Yes        --
 LTRIM             -- Yes        --
 MGET              -- Yes        -- *4
-MIGRATE           -- Yes        --
+MIGRATE           -- Yes        -- *4 *J
 MONITOR           -- No         --
 MOVE              -- No         --
 MSET              -- Yes        -- *4
@@ -278,6 +278,11 @@ Notes:
       script on all backends at once.
 *H -- Note that any unsupported commands can still be run on individual backends
       by using the FORWARD command, but be careful when doing this. See below.
+*I -- Which command referred you to this note?
+*J -- If any backend returns an error, then MIGRATE returns a multi response
+      containing the responses from all backends. If no backend returns an
+      error, then MIGRATE returns NOKEY if all backends returned NOKEY, and OK
+      otherwise.
 
 
 redis-shatter also implements some commands that aren't part of the official

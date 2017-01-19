@@ -150,6 +150,7 @@ struct ResponseLink {
     CollectIdenticalResponses,
     ModifyScanResponse,
     ModifyScriptExistsResponse,
+    ModifyMigrateResponse,
   };
   CollectionType type;
 
@@ -315,7 +316,8 @@ private:
       std::shared_ptr<DataCommand> cmd);
   void command_forward_random(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_partition_by_keys(Client* c, std::shared_ptr<DataCommand> cmd,
-      size_t args_per_key, ResponseLink::CollectionType type);
+      size_t start_arg_index, size_t args_per_key,
+      ResponseLink::CollectionType type);
   void command_partition_by_keys_1_integer(Client* c,
       std::shared_ptr<DataCommand> cmd);
   void command_partition_by_keys_1_multi(Client* c,

@@ -102,6 +102,9 @@ void DataCommand::write(struct evbuffer* buf) const {
 ReferenceCommand::DataReference::DataReference(const void* data, size_t size) :
     data(data), size(size) { }
 
+ReferenceCommand::DataReference::DataReference(const string& data) :
+    data(data.data()), size(data.size()) { }
+
 ReferenceCommand::ReferenceCommand(size_t num_args) {
   this->args.reserve(num_args);
 }

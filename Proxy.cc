@@ -159,6 +159,8 @@ const char* ResponseLink::name_for_collection_type(CollectionType type) {
       return "ModifyScanResponse";
     case CollectionType::ModifyScriptExistsResponse:
       return "ModifyScriptExistsResponse";
+    case CollectionType::ModifyMigrateResponse:
+      return "ModifyMigrateResponse";
     default:
       return "UnknownCollectionType";
   }
@@ -231,6 +233,7 @@ void ResponseLink::print(FILE* stream, int indent_level) const {
     case CollectionType::CollectResponses:
     case CollectionType::CollectIdenticalResponses:
     case CollectionType::ModifyScriptExistsResponse:
+    case CollectionType::ModifyMigrateResponse:
       data += ", responses=[";
       for (const auto& r : this->responses) {
         data += r->format();
@@ -839,6 +842,40 @@ void Proxy::send_ready_response(ResponseLink* l) {
       break;
     }
 
+    case CollectionType::ModifyMigrateResponse: {
+      // each response should be either a status (OK) or error (NOKEY)
+      size_t num_ok_responses = 0;
+      bool error_response = false;
+      for (const auto& backend_r : l->responses) {
+        if (backend_r->type == Response::Type::Status) {
+          if (backend_r->data != "NOKEY") {
+            num_ok_responses++;
+          }
+        } else if (backend_r->type == Response::Type::Error) {
+          error_response = true;
+        }
+      }
+
+      if (error_response) {
+        Response r(Response::Type::Multi, l->responses.size());
+        for (auto& backend_r : l->responses) {
+          r.fields.emplace_back(backend_r);
+        }
+        this->send_client_response(l->client, &r);
+        return;
+      }
+
+      if (num_ok_responses) {
+        this->send_client_string_response(l->client, "OK",
+            Response::Type::Status);
+      } else {
+        this->send_client_string_response(l->client, "NOKEY",
+            Response::Type::Status);
+      }
+
+      break;
+    }
+
     default:
       this->send_client_response(l->client, unknown_collection_type_error_response);
   }
@@ -912,6 +949,7 @@ void Proxy::handle_backend_response(BackendConnection* conn,
       case CollectionType::CollectResponses:
       case CollectionType::CollectIdenticalResponses:
       case CollectionType::ModifyScriptExistsResponse:
+      case CollectionType::ModifyMigrateResponse:
         l->responses.emplace_back(r);
         break;
 
@@ -1310,10 +1348,15 @@ void Proxy::command_forward_random(Client* c, shared_ptr<DataCommand> cmd) {
 }
 
 void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
-    size_t args_per_key, CollectionType type) {
+    size_t start_arg_index, size_t args_per_key, CollectionType type) {
 
-  if (((cmd->args.size() - 1) % args_per_key) != 0) {
+  if (cmd->args.size() <= start_arg_index) {
     this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+  if (((cmd->args.size() - start_arg_index) % args_per_key) != 0) {
+    this->send_client_string_response(c, "ERR incorrect number of arguments",
         Response::Type::Error);
     return;
   }
@@ -1356,19 +1399,19 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
 
 void Proxy::command_partition_by_keys_1_integer(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 1,
+  this->command_partition_by_keys(c, cmd, 1, 1,
       CollectionType::SumIntegerResponses);
 }
 
 void Proxy::command_partition_by_keys_1_multi(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 1,
+  this->command_partition_by_keys(c, cmd, 1, 1,
       CollectionType::CollectMultiResponsesByKey);
 }
 
 void Proxy::command_partition_by_keys_2_status(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 2,
+  this->command_partition_by_keys(c, cmd, 1, 2,
       CollectionType::CollectStatusResponses);
 }
 
@@ -1720,7 +1763,27 @@ void Proxy::command_MIGRATE(Client* c, shared_ptr<DataCommand> cmd) {
     this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
   } else {
-    this->command_forward_by_key_index(c, cmd, 3);
+    if (!cmd->args[3].empty()) {
+      this->command_forward_by_key_index(c, cmd, 3);
+    } else {
+      // new form of MIGRATE - can contain multiple keys. find the KEYS token
+      // and partition the command after it
+      size_t arg_index;
+      for (arg_index = 6; arg_index < cmd->args.size(); arg_index++) {
+        if (cmd->args[arg_index] == "KEYS") {
+          break;
+        }
+      }
+      if (arg_index >= cmd->args.size()) {
+        this->send_client_string_response(c,
+            "ERR the KEYS option is required if argument 3 is blank",
+            Response::Type::Error);
+        return;
+      }
+
+      this->command_partition_by_keys(c, cmd, arg_index, 1,
+          CollectionType::ModifyMigrateResponse);
+    }
   }
 }
 
