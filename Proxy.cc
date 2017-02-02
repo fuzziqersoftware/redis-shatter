@@ -1881,7 +1881,7 @@ void Proxy::command_SCAN(Client* c, shared_ptr<DataCommand> cmd) {
     return;
   }
 
-  // cursor is formatted as "backend_bev:cursor"
+  // cursor is formatted as "backend_index:cursor"
   size_t colon_offset = cmd->args[1].find(':');
   if (colon_offset == string::npos) {
     this->send_client_string_response(c,
