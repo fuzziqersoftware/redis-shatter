@@ -88,12 +88,12 @@ void Backend::print(FILE* stream, int indent_level) const {
 // Client implementation
 
 Client::Client(unique_ptr<struct bufferevent, void(*)(struct bufferevent*)> bev)
-    : name(), should_disconnect(false), bev(move(bev)), parser(),
+    : name(), debug_name(), should_disconnect(false), bev(move(bev)), parser(),
     local_addr(), remote_addr(), num_commands_received(0),
     num_responses_sent(0), head_link(NULL), tail_link(NULL) {
   get_socket_addresses(bufferevent_getfd(this->bev.get()), &this->local_addr,
       &this->remote_addr);
-  this->name = render_sockaddr_storage(this->remote_addr) +
+  this->debug_name = render_sockaddr_storage(this->remote_addr) +
       string_printf("@%d", bufferevent_getfd(this->bev.get()));
 }
 
@@ -120,8 +120,8 @@ struct evbuffer* Client::get_output_buffer() {
 }
 
 void Client::print(FILE* stream, int indent_level) const {
-  fprintf(stream, "Client[name=%s, should_disconnect=%s, io_counts=[%zu, %zu], chain=[",
-      this->name.c_str(), this->should_disconnect ? "true" : "false",
+  fprintf(stream, "Client[name=%s, debug_name=%s, should_disconnect=%s, io_counts=[%zu, %zu], chain=[",
+      this->name.c_str(), this->debug_name.c_str(), this->should_disconnect ? "true" : "false",
       this->num_commands_received, this->num_responses_sent);
 
   for (ResponseLink* l = this->head_link; l; l = l->next_client) {
@@ -200,7 +200,7 @@ void ResponseLink::print(FILE* stream, int indent_level) const {
   string error_response_str = this->error_response ?
       (", error_response=" + this->error_response->format()) : "";
   string client_str = this->client ?
-      string_printf("<%s>", this->client->name.c_str()) : "(missing)";
+      string_printf("<%s>", this->client->debug_name.c_str()) : "(missing)";
 
   string data = string_printf(
       "ResponseLink[@=%p, type=%s, client=%s%s",
@@ -539,7 +539,7 @@ void Proxy::send_client_response(Client* c, const Response* r) {
   struct evbuffer* out = c->get_output_buffer();
   if (!out) {
     log(WARNING, "tried to send response to client %s with no output buffer",
-        c->name.c_str());
+        c->debug_name.c_str());
     return;
   }
 
@@ -558,7 +558,7 @@ void Proxy::send_client_string_response(Client* c, const char* s,
   struct evbuffer* out = c->get_output_buffer();
   if (!out) {
     log(WARNING, "tried to send response to client %s with no output buffer",
-        c->name.c_str());
+        c->debug_name.c_str());
     return;
   }
 
@@ -573,7 +573,7 @@ void Proxy::send_client_string_response(Client* c, const string& s,
   struct evbuffer* out = c->get_output_buffer();
   if (!out) {
     log(WARNING, "tried to send response to client %s with no output buffer",
-        c->name.c_str());
+        c->debug_name.c_str());
     return;
   }
 
@@ -588,7 +588,7 @@ void Proxy::send_client_string_response(Client* c, const void* data,
   struct evbuffer* out = c->get_output_buffer();
   if (!out) {
     log(WARNING, "tried to send response to client %s with no output buffer",
-        c->name.c_str());
+        c->debug_name.c_str());
     return;
   }
 
@@ -603,7 +603,7 @@ void Proxy::send_client_int_response(Client* c, int64_t int_value,
   struct evbuffer* out = c->get_output_buffer();
   if (!out) {
     log(WARNING, "tried to send response to client %s with no output buffer",
-        c->name.c_str());
+        c->debug_name.c_str());
     return;
   }
 
@@ -1077,7 +1077,7 @@ void Proxy::on_client_input(struct bufferevent *bev) {
     }
 
   } catch (const exception& e) {
-    log(WARNING, "error in client %s input stream: %s", c.name.c_str(),
+    log(WARNING, "error in client %s input stream: %s", c.debug_name.c_str(),
         e.what());
     c.should_disconnect = true;
   }
@@ -1099,7 +1099,7 @@ void Proxy::on_client_error(struct bufferevent *bev, short events) {
   if (events & BEV_EVENT_ERROR) {
     int err = EVUTIL_SOCKET_ERROR();
     log(WARNING, "client %s caused error %d (%s) in input stream",
-        c.name.c_str(), err, evutil_socket_error_to_string(err));
+        c.debug_name.c_str(), err, evutil_socket_error_to_string(err));
   }
   if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
     this->disconnect_client(&c);
@@ -1422,7 +1422,8 @@ void Proxy::command_unimplemented(Client* c, shared_ptr<DataCommand> cmd) {
 
 void Proxy::command_default(Client* c, shared_ptr<DataCommand> cmd) {
   string formatted_cmd = cmd->format();
-  log(INFO, "unknown command from %s: %s", c->name.c_str(), formatted_cmd.c_str());
+  log(INFO, "unknown command from %s: %s", c->debug_name.c_str(),
+      formatted_cmd.c_str());
 
   this->send_client_string_response(c, "PROXYERROR unknown command",
       Response::Type::Error);
@@ -1506,16 +1507,44 @@ void Proxy::command_CLIENT(Client* c, shared_ptr<DataCommand> cmd) {
         response_chain_length++;
       }
 
+      int fd = bufferevent_getfd(c.bev.get());
+      string addr_str = render_sockaddr_storage(c.remote_addr);
+
       response_data += string_printf(
-          "name=%s cmdrecv=%d rspsent=%d rspchain=%d\n",
-          c.name.c_str(), c.num_commands_received, c.num_responses_sent,
-          response_chain_length);
+          "addr=%s fd=%d name=%s debug_name=%s cmdrecv=%d rspsent=%d rspchain=%d\n",
+          addr_str.c_str(), fd, c.name.c_str(), c.debug_name.c_str(),
+          c.num_commands_received, c.num_responses_sent, response_chain_length);
     }
 
     this->send_client_string_response(c, response_data, Response::Type::Data);
 
   } else if (cmd->args[1] == "GETNAME") {
-    this->send_client_string_response(c, c->name, Response::Type::Data);
+    if (c->name.empty()) {
+      // Redis returns a null response if the client name is missing
+      this->send_client_int_response(c, -1, Response::Type::Data);
+    } else {
+      this->send_client_string_response(c, c->name, Response::Type::Data);
+    }
+
+  } else if (cmd->args[1] == "SETNAME") {
+    if (cmd->args.size() != 3) {
+      this->send_client_string_response(c, "ERR incorrect argument count",
+          Response::Type::Error);
+      return;
+    }
+    if (cmd->args[2].size() > 0x100) {
+      this->send_client_string_response(c,
+          "ERR client names can be at most 256 bytes", Response::Type::Error);
+      return;
+    }
+    if (cmd->args[2].find(' ') != string::npos) {
+      this->send_client_string_response(c,
+          "ERR client names can\'t contain spaces", Response::Type::Error);
+      return;
+    }
+
+    c->name = cmd->args[2];
+    this->send_client_string_response(c, "OK", Response::Type::Status);
 
   } else {
     this->send_client_string_response(c, "ERR unsupported subcommand",

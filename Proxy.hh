@@ -75,6 +75,7 @@ struct Backend {
 
 struct Client {
   std::string name;
+  std::string debug_name;
   bool should_disconnect;
 
   std::unique_ptr<struct bufferevent, void(*)(struct bufferevent*)> bev;
