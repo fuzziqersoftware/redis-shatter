@@ -1,34 +1,42 @@
-redis-shatter is a sharding proxy for the redis protocol, inspired by twemproxy
-(https://github.com/twitter/twemproxy). Documentation on how to actually use
-this is in the example configuration file, redis-shatter.conf.example.
+redis-shatter
+-------------
 
-In essence, this proxy appears like a standard redis server to other hosts, but
+redis-shatter is a sharding proxy for the Redis protocol, inspired by twemproxy
+(https://github.com/twitter/twemproxy). Documentation on how to actually use
+this is in the example configuration file, redis-shatter.conf.
+
+In essence, this proxy appears like a standard Redis server to other hosts, but
 doesn't store any data locally - instead, keys are distributed between multiple
-backends (other hosts that speak the redis protocol, usually redis-servers).
+backends (other hosts that speak the Redis protocol, usually Redis servers).
 This can give useful speed, reliability, and scalability benefits, but has some
 significant drawbacks as well:
 - Command execution requires another network hop, which comes with a performance
   penalty. Clients that pipeline commands are somewhat insulated from this
   issue.
-- Complex commands that affect multiple keys cannot be run efficiently unless
-  the affected keys are all on the same backend. There are inefficient ways to
-  run these commands, but these are not implemented by redis-shatter.
+- Complex commands that affect multiple keys cannot be run efficiently unless the
+  affected keys are all on the same backend. There are inefficient ways to run
+  these commands, but these are (currently) not implemented by redis-shatter.
 
-redis-shatter in front of 8 redis-server instances on the same machine was about
-60% as fast as a single redis-server itself, according to side-by-side
+
+Performance
+-----------
+
+redis-shatter in front of 8 Redis server instances on the same machine was about
+60% as fast as a single Redis server itself, according to side-by-side
 redis-benchmark tests. Very little performance optimization work has been done,
 so there's probably a lot of room for improvement here.
-
-Unlike other similar projects, redis-shatter's behavior sometimes deviates from
-the standard Redis protocol in order to implement reasonable behavior for
-complex or administrative commands. These deviations are explained in the notes
-in the below table.
 
 Like most of my projects, this is only tested at a small scale (so far), so
 there may be unfound bugs or inefficiencies. Use at your own risk.
 
 
-List of supported commands:
+Behavior
+--------
+
+Unlike other similar projects, redis-shatter strives to implement as many
+commands as possible. For some of the less-common commands, redis-shatter
+deviates from the standard Redis protocol in order to implement reasonable
+behavior. These deviations are explained in the notes in the below table.
 
 Command           -- Supported  -- Notes (see end)
 --------------------------------------------------
@@ -48,7 +56,7 @@ CLIENT KILL       -- No         --
 CLIENT LIST       -- Yes        -- *C
 CLIENT PAUSE      -- No         --
 CLIENT REPLY      -- No         --
-CLIENT SETNAME    -- No         -- *F
+CLIENT SETNAME    -- Yes        -- *F
 CLUSTER           -- No         -- *H
 COMMAND           -- Yes        -- *E
 COMMAND COUNT     -- Yes        -- *E
@@ -229,7 +237,8 @@ Notes:
 *4 -- These commands are atomic only on each backend; they are not atomic across
       all backends.
 *5 -- The proxy's response format is different than that of Redis - the proxy
-      returns a multi response with one field per backend.
+      returns a multi response with one field per backend. If this isn't what
+      you want, you can use FORWARD to interact with a single backend at once.
 *6 -- These commands are forwarded to all backends.
 *7 -- Since the proxy doesn't support multiple redis DBs, FLUSHDB is essentially
       equivalent to FLUSHALL.
@@ -268,8 +277,7 @@ Notes:
       the backends are not configured identically (i.e. some have rename-command
       directives in their configs and some don't) then the results may differ
       between subsequent calls.
-*F -- Client names are immutable, and are likely to be unique to the proxy
-      instance serving the request.
+*F -- Names pertain only to the connection between the client and the proxy.
 *G -- EVALSHA is more likely to fail in a sharded environment, since the script
       needs to be loaded into all the backends' script caches for it to work on
       arbitrary keys. Although EVAL implicitly loads the script into the script
@@ -285,26 +293,36 @@ Notes:
       otherwise.
 
 
-redis-shatter also implements some commands that aren't part of the official
-redis protocol. These commands are:
+Administration
+--------------
 
-BACKEND <key>
-  Returns the name of the backend on which the given key belongs.
+redis-shatter implements many administrative commands that are omitted in other
+similar proxies. See the commands table above for details.
 
-BACKENDNUM <key>
-  Returns the number of the backend on which the given key belongs.
+redis-shatter also implements some administrative commands that aren't part of
+the official Redis protocol. These commands are:
+
+BACKEND key [key ...]
+  Returns the name of the backend on which the given key belongs, as a data
+  response. If multiple keys are given, returns a multi response with one data
+  element per key.
+
+BACKENDNUM key [key ...]
+  Returns the number of the backend on which the given key belongs, as an
+  integer response. If multiple keys are given, returns a multi response with
+  one integer element per key.
 
 BACKENDS
   Returns a list of all backends. The items are formatted as "host:port@name".
 
-FORWARD <backend-name> <command> [args...]
+FORWARD backend-name command [args...]
   Forwards the given command directly to the given backend and return its
   response verbatim. You can use this in lieu of connecting directly to the
   backend. This command shares the backend connections with all other clients,
   so forwarding commands that affect connection state like MULTI or SELECT will
   cause misbehavior.
 
-FORWARD "" <command> [args...]
+FORWARD "" command [args...]
   Forwards the given command to all backends and returns a multi response
   containing the backends' responses. As noted above, don't forward commands
   that affect connection state.
