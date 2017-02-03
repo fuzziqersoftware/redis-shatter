@@ -2000,179 +2000,179 @@ void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
 
 
 const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
-  {"AUTH",              &Proxy::command_unimplemented}, // password - Authenticate to the server
-  {"BLPOP",             &Proxy::command_unimplemented}, // key [key ...] timeout - Remove and get the first element in a list, or block until one is available
-  {"BRPOP",             &Proxy::command_unimplemented}, // key [key ...] timeout - Remove and get the last element in a list, or block until one is available
-  {"BRPOPLPUSH",        &Proxy::command_unimplemented}, // source destination timeout - Pop a value from a list, push it to another list and return it; or block until one is available
-  {"CLUSTER",           &Proxy::command_unimplemented}, // ADDSLOTS \ COUNT-FAILURE-REPORTS \ COUNTKEYSINSLOT \ DELSLOTS \ FAILOVER \ FORGET \ GETKEYSINSLOT \ INFO \ KEYSLOT \ MEET \ NODES \ REPLICATE \ RESET \ SAVECONFIG \ SET-CONFIG-EPOCH \ SETSLOT \ SLAVES \ SLOTS
-  {"DISCARD",           &Proxy::command_unimplemented}, // - Discard all commands issued after MULTI
-  {"EXEC",              &Proxy::command_unimplemented}, // - Execute all commands issued after MULTI
-  {"MONITOR",           &Proxy::command_unimplemented}, // - Listen for all requests received by the server in real time
-  {"MOVE",              &Proxy::command_unimplemented}, // key db - Move a key to another database
-  {"MULTI",             &Proxy::command_unimplemented}, // - Mark the start of a transaction block
-  {"PSUBSCRIBE",        &Proxy::command_unimplemented}, // pattern [pattern ...] - Listen for messages published to channels matching the given patterns
-  {"PUBLISH",           &Proxy::command_unimplemented}, // channel message - Post a message to a channel
-  {"PUBSUB",            &Proxy::command_unimplemented}, // subcommand [argument [argument ...]] - Inspect the state of the Pub/Sub subsystem
-  {"PUNSUBSCRIBE",      &Proxy::command_unimplemented}, // [pattern [pattern ...]] - Stop listening for messages posted to channels matching the given patterns
-  {"READONLY",          &Proxy::command_unimplemented}, // - allows reads from cluster slave nodes
-  {"READWRITE",         &Proxy::command_unimplemented}, // - inverse of READONLY
-  {"SELECT",            &Proxy::command_unimplemented}, // index - Change the selected database for the current connection
-  {"SLAVEOF",           &Proxy::command_unimplemented}, // host port - Make the server a slave of another instance, or promote it as master
-  {"SUBSCRIBE",         &Proxy::command_unimplemented}, // channel [channel ...] - Listen for messages published to the given channels
-  {"SWAPDB",            &Proxy::command_unimplemented}, // index index - exchange the contents of two Redis databases
-  {"SYNC",              &Proxy::command_unimplemented}, // - Internal command used for replication
-  {"UNSUBSCRIBE",       &Proxy::command_unimplemented}, // [channel [channel ...]] - Stop listening for messages posted to the given channels
-  {"UNWATCH",           &Proxy::command_unimplemented}, // - Forget about all watched keys
-  {"WAIT",              &Proxy::command_unimplemented}, // numslaves timeout - Wait for synchronous replication
-  {"WATCH",             &Proxy::command_unimplemented}, // key [key ...] - Watch the given keys to determine execution of the MULTI/EXEC block
+  {"AUTH",              &Proxy::command_unimplemented},
+  {"BLPOP",             &Proxy::command_unimplemented},
+  {"BRPOP",             &Proxy::command_unimplemented},
+  {"BRPOPLPUSH",        &Proxy::command_unimplemented},
+  {"CLUSTER",           &Proxy::command_unimplemented},
+  {"DISCARD",           &Proxy::command_unimplemented},
+  {"EXEC",              &Proxy::command_unimplemented},
+  {"MONITOR",           &Proxy::command_unimplemented},
+  {"MOVE",              &Proxy::command_unimplemented},
+  {"MULTI",             &Proxy::command_unimplemented},
+  {"PSUBSCRIBE",        &Proxy::command_unimplemented},
+  {"PUBLISH",           &Proxy::command_unimplemented},
+  {"PUBSUB",            &Proxy::command_unimplemented},
+  {"PUNSUBSCRIBE",      &Proxy::command_unimplemented},
+  {"READONLY",          &Proxy::command_unimplemented},
+  {"READWRITE",         &Proxy::command_unimplemented},
+  {"SELECT",            &Proxy::command_unimplemented},
+  {"SLAVEOF",           &Proxy::command_unimplemented},
+  {"SUBSCRIBE",         &Proxy::command_unimplemented},
+  {"SWAPDB",            &Proxy::command_unimplemented},
+  {"SYNC",              &Proxy::command_unimplemented},
+  {"UNSUBSCRIBE",       &Proxy::command_unimplemented},
+  {"UNWATCH",           &Proxy::command_unimplemented},
+  {"WAIT",              &Proxy::command_unimplemented},
+  {"WATCH",             &Proxy::command_unimplemented},
 
-  {"APPEND",            &Proxy::command_forward_by_key_1},             // key value - Append a value to a key
-  {"BGREWRITEAOF",      &Proxy::command_all_collect_status_responses}, // - Asynchronously rewrite the append-only file
-  {"BGSAVE",            &Proxy::command_all_collect_status_responses}, // - Asynchronously save db to disk
-  {"BITCOUNT",          &Proxy::command_forward_by_key_1},             // key [start] [end] - Count set bits in a string
-  {"BITFIELD",          &Proxy::command_forward_by_key_1},             // key [lots of options] - Perform integer arithmetic operations on a string
-  {"BITOP",             &Proxy::command_forward_by_keys_2_all},        // operation destkey key [key ...] - Perform bitwise operations between strings
-  {"BITPOS",            &Proxy::command_forward_by_key_1},             // key bit [start] [end] - Return the position of the first bit set to 1 or 0 in a string
-  {"CLIENT",            &Proxy::command_CLIENT},                       // KILL ip:port / LIST / GETNAME / SETNAME name / PAUSE / REPLY
-  {"COMMAND",           &Proxy::command_forward_random},               // [COUNT | GETKEYS | INFO] - Get information about Redis commands
-  {"CONFIG",            &Proxy::command_all_collect_responses},        // GET parameter / REWRITE / SET param value / RESETSTAT
-  {"DBSIZE",            &Proxy::command_DBSIZE},                       // - Return the number of keys in the selected database
-  {"DEBUG",             &Proxy::command_DEBUG},                        // OBJECT key / SEGFAULT
-  {"DECR",              &Proxy::command_forward_by_key_1},             // key - Decrement the integer value of a key by one
-  {"DECRBY",            &Proxy::command_forward_by_key_1},             // key decrement - Decrement the integer value of a key by the given number
-  {"DEL",               &Proxy::command_partition_by_keys_1_integer},  // key [key ...] - Delete a key
-  {"DUMP",              &Proxy::command_forward_by_key_1},             // key - Return a serialized version of the value stored at the specified key.
-  {"ECHO",              &Proxy::command_ECHO},                         // message - Echo the given string
-  {"EVAL",              &Proxy::command_EVAL},                         // script numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
-  {"EVALSHA",           &Proxy::command_EVAL},                         // sha1 numkeys key [key ...] arg [arg ...] - Execute a Lua script server side
-  {"EXISTS",            &Proxy::command_forward_by_key_1},             // key - Determine if a key exists
-  {"EXPIRE",            &Proxy::command_forward_by_key_1},             // key seconds - Set a keys time to live in seconds
-  {"EXPIREAT",          &Proxy::command_forward_by_key_1},             // key timestamp - Set the expiration for a key as a UNIX timestamp
-  {"FLUSHALL",          &Proxy::command_all_collect_status_responses}, // - Remove all keys from all databases
-  {"FLUSHDB",           &Proxy::command_all_collect_status_responses}, // - Remove all keys from the current database
-  {"GEOADD",            &Proxy::command_forward_by_key_1},             // key longitude latitude member ...
-  {"GEOHASH",           &Proxy::command_forward_by_key_1},             // key member ...
-  {"GEOPOS",            &Proxy::command_forward_by_key_1},             // key member ...
-  {"GEODIST",           &Proxy::command_forward_by_key_1},             // key member1 member2 [unit]
-  {"GEORADIUS",         &Proxy::command_GEORADIUS},                    // key longitude latitude radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]
-  {"GEORADIUSBYMEMBER", &Proxy::command_GEORADIUS},                    // key member radius m|km|ft|mi [WITHCOORD] [WITHDIST] [WITHHASH] [COUNT count] [ASC|DESC] [STORE key] [STOREDIST key]
-  {"GET",               &Proxy::command_forward_by_key_1},             // key - Get the value of a key
-  {"GETBIT",            &Proxy::command_forward_by_key_1},             // key offset - Returns the bit value at offset in the string value stored at key
-  {"GETRANGE",          &Proxy::command_forward_by_key_1},             // key start end - Get a substring of the string stored at a key
-  {"GETSET",            &Proxy::command_forward_by_key_1},             // key value - Set the string value of a key and return its old value
-  {"HDEL",              &Proxy::command_forward_by_key_1},             // key field [field ...] - Delete one or more hash fields
-  {"HEXISTS",           &Proxy::command_forward_by_key_1},             // key field - Determine if a hash field exists
-  {"HGET",              &Proxy::command_forward_by_key_1},             // key field - Get the value of a hash field
-  {"HGETALL",           &Proxy::command_forward_by_key_1},             // key - Get all the fields and values in a hash
-  {"HINCRBY",           &Proxy::command_forward_by_key_1},             // key field increment - Increment the integer value of a hash field by the given number
-  {"HINCRBYFLOAT",      &Proxy::command_forward_by_key_1},             // key field increment - Increment the float value of a hash field by the given amount
-  {"HKEYS",             &Proxy::command_forward_by_key_1},             // key - Get all the fields in a hash
-  {"HLEN",              &Proxy::command_forward_by_key_1},             // key - Get the number of fields in a hash
-  {"HMGET",             &Proxy::command_forward_by_key_1},             // key field [field ...] - Get the values of all the given hash fields
-  {"HMSET",             &Proxy::command_forward_by_key_1},             // key field value [field value ...] - Set multiple hash fields to multiple values
-  {"HSCAN",             &Proxy::command_forward_by_key_1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate hash fields and associated values
-  {"HSET",              &Proxy::command_forward_by_key_1},             // key field value - Set the string value of a hash field
-  {"HSETNX",            &Proxy::command_forward_by_key_1},             // key field value - Set the value of a hash field, only if the field does not exist
-  {"HSTRLEN",           &Proxy::command_forward_by_key_1},             // key field - Get the length of a hash field's value
-  {"HVALS",             &Proxy::command_forward_by_key_1},             // key - Get all the values in a hash
-  {"INCR",              &Proxy::command_forward_by_key_1},             // key - Increment the integer value of a key by one
-  {"INCRBY",            &Proxy::command_forward_by_key_1},             // key increment - Increment the integer value of a key by the given amount
-  {"INCRBYFLOAT",       &Proxy::command_forward_by_key_1},             // key increment - Increment the float value of a key by the given amount
-  {"INFO",              &Proxy::command_INFO},                         // [backendnum] [section] - Get information and statistics about the server
-  {"KEYS",              &Proxy::command_KEYS},                         // pattern - Find all keys matching the given pattern
-  {"LASTSAVE",          &Proxy::command_all_collect_responses},        // - Get the UNIX time stamp of the last successful save to disk  
-  {"LINDEX",            &Proxy::command_forward_by_key_1},             // key index - Get an element from a list by its index
-  {"LINSERT",           &Proxy::command_forward_by_key_1},             // key BEFORE|AFTER pivot value - Insert an element before or after another element in a list
-  {"LLEN",              &Proxy::command_forward_by_key_1},             // key - Get the length of a list
-  {"LPOP",              &Proxy::command_forward_by_key_1},             // key - Remove and get the first element in a list
-  {"LPUSH",             &Proxy::command_forward_by_key_1},             // key value [value ...] - Prepend one or multiple values to a list
-  {"LPUSHX",            &Proxy::command_forward_by_key_1},             // key value - Prepend a value to a list, only if the list exists
-  {"LRANGE",            &Proxy::command_forward_by_key_1},             // key start stop - Get a range of elements from a list
-  {"LREM",              &Proxy::command_forward_by_key_1},             // key count value - Remove elements from a list
-  {"LSET",              &Proxy::command_forward_by_key_1},             // key index value - Set the value of an element in a list by its index
-  {"LTRIM",             &Proxy::command_forward_by_key_1},             // key start stop - Trim a list to the specified range
-  {"MGET",              &Proxy::command_partition_by_keys_1_multi},    // key [key ...] - Get the values of all the given keys
-  {"MIGRATE",           &Proxy::command_MIGRATE},                      // host port key destination-db timeout [COPY] [REPLACE] - Atomically transfer a key from a Redis instance to another one.
-  {"MSET",              &Proxy::command_partition_by_keys_2_status},   // key value [key value ...] - Set multiple keys to multiple values
-  {"MSETNX",            &Proxy::command_MSETNX},                       // key value [key value ...] - Set multiple keys to multiple values, only if none of the keys exist
-  {"OBJECT",            &Proxy::command_OBJECT},                       // subcommand [arguments [arguments ...]] - Inspect the internals of Redis objects
-  {"PERSIST",           &Proxy::command_forward_by_key_1},             // key - Remove the expiration from a key
-  {"PEXPIRE",           &Proxy::command_forward_by_key_1},             // key milliseconds - Set a keys time to live in milliseconds
-  {"PEXPIREAT",         &Proxy::command_forward_by_key_1},             // key milliseconds-timestamp - Set the expiration for a key as a UNIX timestamp specified in milliseconds
-  {"PFADD",             &Proxy::command_forward_by_key_1},             // key element [element ...] - Add all elements to HyperLogLog
-  {"PFCOUNT",           &Proxy::command_forward_by_keys_1_all},        // key [key ...] - Count unique elements in HyperLogLogs
-  {"PFMERGE",           &Proxy::command_forward_by_keys_1_all},        // key [key ...] - Merge HyperLogLogs into one
-  {"PING",              &Proxy::command_PING},                         // - Ping the server
-  {"PSETEX",            &Proxy::command_forward_by_key_1},             // key milliseconds value - Set the value and expiration in milliseconds of a key
-  {"PTTL",              &Proxy::command_forward_by_key_1},             // key - Get the time to live for a key in milliseconds
-  {"QUIT",              &Proxy::command_QUIT},                         // - Close the connection
-  {"RANDOMKEY",         &Proxy::command_forward_random},               // - Return a random key from the keyspace
-  {"RENAME",            &Proxy::command_forward_by_keys_1_all},        // key newkey - Rename a key
-  {"RENAMENX",          &Proxy::command_forward_by_keys_1_all},        // key newkey - Rename a key, only if the new key does not exist
-  {"RESTORE",           &Proxy::command_forward_by_key_1},             // key ttl serialized-value - Create a key using the provided serialized value, previously obtained using DUMP.
-  {"ROLE",              &Proxy::command_ROLE},                         // - Return the role of the instance in the context of replication
-  {"RPOP",              &Proxy::command_forward_by_key_1},             // key - Remove and get the last element in a list
-  {"RPOPLPUSH",         &Proxy::command_forward_by_keys_1_all},        // source destination - Remove the last element in a list, append it to another list and return it
-  {"RPUSH",             &Proxy::command_forward_by_key_1},             // key value [value ...] - Append one or multiple values to a list
-  {"RPUSHX",            &Proxy::command_forward_by_key_1},             // key value - Append a value to a list, only if the list exists
-  {"SADD",              &Proxy::command_forward_by_key_1},             // key member [member ...] - Add one or more members to a set
-  {"SAVE",              &Proxy::command_all_collect_status_responses}, // - Synchronously save the dataset to disk
-  {"SCAN",              &Proxy::command_SCAN},                         // cursor [MATCH pattern] [COUNT count] - Incrementally iterate the keys space
-  {"SCARD",             &Proxy::command_forward_by_key_1},             // key - Get the number of members in a set
-  {"SCRIPT",            &Proxy::command_SCRIPT},                       // KILL / EXISTS name / FLUSH / LOAD data - Kill the script currently in execution.
-  {"SDIFF",             &Proxy::command_forward_by_keys_1_all},        // key [key ...] - Subtract multiple sets
-  {"SDIFFSTORE",        &Proxy::command_forward_by_keys_1_all},        // destination key [key ...] - Subtract multiple sets and store the resulting set in a key
-  {"SET",               &Proxy::command_forward_by_key_1},             // key value [EX seconds] [PX milliseconds] [NX|XX] - Set the string value of a key
-  {"SETBIT",            &Proxy::command_forward_by_key_1},             // key offset value - Sets or clears the bit at offset in the string value stored at key
-  {"SETEX",             &Proxy::command_forward_by_key_1},             // key seconds value - Set the value and expiration of a key
-  {"SETNX",             &Proxy::command_forward_by_key_1},             // key value - Set the value of a key, only if the key does not exist
-  {"SETRANGE",          &Proxy::command_forward_by_key_1},             // key offset value - Overwrite part of a string at key starting at the specified offset
-  {"SHUTDOWN",          &Proxy::command_all_collect_status_responses}, // [NOSAVE] [SAVE] - Synchronously save the dataset to disk and then shut down the server
-  {"SINTER",            &Proxy::command_forward_by_keys_1_all},        // key [key ...] - Intersect multiple sets
-  {"SINTERSTORE",       &Proxy::command_forward_by_keys_1_all},        // destination key [key ...] - Intersect multiple sets and store the resulting set in a key
-  {"SISMEMBER",         &Proxy::command_forward_by_key_1},             // key member - Determine if a given value is a member of a set
-  {"SLOWLOG",           &Proxy::command_all_collect_responses},        // GET [n] / LEN / RESET
-  {"SMEMBERS",          &Proxy::command_forward_by_key_1},             // key - Get all the members in a set
-  {"SMOVE",             &Proxy::command_forward_by_keys_1_2},          // source destination member - Move a member from one set to another
-  {"SORT",              &Proxy::command_forward_by_key_1},             // key [BY pattern] [LIMIT offset count] [GET pattern [GET pattern ...]] [ASC|DESC] [ALPHA] [STORE destination] - Sort the elements in a list, set or sorted set
-  {"SPOP",              &Proxy::command_forward_by_key_1},             // key - Remove and return a random member from a set
-  {"SRANDMEMBER",       &Proxy::command_forward_by_key_1},             // key [count] - Get one or multiple random members from a set
-  {"SREM",              &Proxy::command_forward_by_key_1},             // key member [member ...] - Remove one or more members from a set
-  {"SSCAN",             &Proxy::command_forward_by_key_1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate Set elements
-  {"STRLEN",            &Proxy::command_forward_by_key_1},             // key - Get the length of the value stored in a key
-  {"SUNION",            &Proxy::command_forward_by_keys_1_all},        // key [key ...] - Add multiple sets
-  {"SUNIONSTORE",       &Proxy::command_forward_by_keys_1_all},        // destination key [key ...] - Add multiple sets and store the resulting set in a key
-  {"TIME",              &Proxy::command_all_collect_responses},        // - Return the current server time
-  {"TOUCH",             &Proxy::command_partition_by_keys_1_integer},  // key [key ...] - Update last access time for keys without getting them
-  {"TTL",               &Proxy::command_forward_by_key_1},             // key - Get the time to live for a key
-  {"TYPE",              &Proxy::command_forward_by_key_1},             // key - Determine the type stored at key
-  {"UNLINK",            &Proxy::command_partition_by_keys_1_integer},  // key [key ...] - Delete keys asynchonously
-  {"ZADD",              &Proxy::command_forward_by_key_1},             // key score member [score member ...] - Add one or more members to a sorted set, or update its score if it already exists
-  {"ZCARD",             &Proxy::command_forward_by_key_1},             // key - Get the number of members in a sorted set
-  {"ZCOUNT",            &Proxy::command_forward_by_key_1},             // key min max - Count the members in a sorted set with scores within the given values
-  {"ZINCRBY",           &Proxy::command_forward_by_key_1},             // key increment member - Increment the score of a member in a sorted set
-  {"ZINTERSTORE",       &Proxy::command_ZACTIONSTORE},                 // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Intersect multiple sorted sets and store the resulting sorted set in a new key
-  {"ZLEXCOUNT",         &Proxy::command_forward_by_key_1},             // key min max - Count the members in a sorted set with scores within the given values
-  {"ZRANGE",            &Proxy::command_forward_by_key_1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index
-  {"ZRANGEBYLEX",       &Proxy::command_forward_by_key_1},             // key min max [LIMIT offset count] - Return a range of members in a sorted set, by lex
-  {"ZRANGEBYSCORE",     &Proxy::command_forward_by_key_1},             // key min max [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score
-  {"ZRANK",             &Proxy::command_forward_by_key_1},             // key member - Determine the index of a member in a sorted set
-  {"ZREM",              &Proxy::command_forward_by_key_1},             // key member [member ...] - Remove one or more members from a sorted set
-  {"ZREMRANGEBYLEX",    &Proxy::command_forward_by_key_1},             // key min max - Remove all members in a sorted set within the given lex range
-  {"ZREMRANGEBYRANK",   &Proxy::command_forward_by_key_1},             // key start stop - Remove all members in a sorted set within the given indexes
-  {"ZREMRANGEBYSCORE",  &Proxy::command_forward_by_key_1},             // key min max - Remove all members in a sorted set within the given scores
-  {"ZREVRANGE",         &Proxy::command_forward_by_key_1},             // key start stop [WITHSCORES] - Return a range of members in a sorted set, by index, with scores ordered from high to low
-  {"ZREVRANGEBYLEX",    &Proxy::command_forward_by_key_1},             // key min max [LIMIT offset count] - Return a range of members in a sorted set, by lex from high to low
-  {"ZREVRANGEBYSCORE",  &Proxy::command_forward_by_key_1},             // key max min [WITHSCORES] [LIMIT offset count] - Return a range of members in a sorted set, by score, with scores ordered from high to low
-  {"ZREVRANK",          &Proxy::command_forward_by_key_1},             // key member - Determine the index of a member in a sorted set, with scores ordered from high to low
-  {"ZSCAN",             &Proxy::command_forward_by_key_1},             // key cursor [MATCH pattern] [COUNT count] - Incrementally iterate sorted sets elements and associated scores
-  {"ZSCORE",            &Proxy::command_forward_by_key_1},             // key member - Get the score associated with the given member in a sorted set
-  {"ZUNIONSTORE",       &Proxy::command_ZACTIONSTORE},                 // destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX] - Add multiple sorted sets and store the resulting sorted set in a new key
+  {"APPEND",            &Proxy::command_forward_by_key_1},
+  {"BGREWRITEAOF",      &Proxy::command_all_collect_status_responses},
+  {"BGSAVE",            &Proxy::command_all_collect_status_responses},
+  {"BITCOUNT",          &Proxy::command_forward_by_key_1},
+  {"BITFIELD",          &Proxy::command_forward_by_key_1},
+  {"BITOP",             &Proxy::command_forward_by_keys_2_all},
+  {"BITPOS",            &Proxy::command_forward_by_key_1},
+  {"CLIENT",            &Proxy::command_CLIENT},
+  {"COMMAND",           &Proxy::command_forward_random},
+  {"CONFIG",            &Proxy::command_all_collect_responses},
+  {"DBSIZE",            &Proxy::command_DBSIZE},
+  {"DEBUG",             &Proxy::command_DEBUG},
+  {"DECR",              &Proxy::command_forward_by_key_1},
+  {"DECRBY",            &Proxy::command_forward_by_key_1},
+  {"DEL",               &Proxy::command_partition_by_keys_1_integer},
+  {"DUMP",              &Proxy::command_forward_by_key_1},
+  {"ECHO",              &Proxy::command_ECHO},
+  {"EVAL",              &Proxy::command_EVAL},
+  {"EVALSHA",           &Proxy::command_EVAL},
+  {"EXISTS",            &Proxy::command_forward_by_key_1},
+  {"EXPIRE",            &Proxy::command_forward_by_key_1},
+  {"EXPIREAT",          &Proxy::command_forward_by_key_1},
+  {"FLUSHALL",          &Proxy::command_all_collect_status_responses},
+  {"FLUSHDB",           &Proxy::command_all_collect_status_responses},
+  {"GEOADD",            &Proxy::command_forward_by_key_1},
+  {"GEOHASH",           &Proxy::command_forward_by_key_1},
+  {"GEOPOS",            &Proxy::command_forward_by_key_1},
+  {"GEODIST",           &Proxy::command_forward_by_key_1},
+  {"GEORADIUS",         &Proxy::command_GEORADIUS},
+  {"GEORADIUSBYMEMBER", &Proxy::command_GEORADIUS},
+  {"GET",               &Proxy::command_forward_by_key_1},
+  {"GETBIT",            &Proxy::command_forward_by_key_1},
+  {"GETRANGE",          &Proxy::command_forward_by_key_1},
+  {"GETSET",            &Proxy::command_forward_by_key_1},
+  {"HDEL",              &Proxy::command_forward_by_key_1},
+  {"HEXISTS",           &Proxy::command_forward_by_key_1},
+  {"HGET",              &Proxy::command_forward_by_key_1},
+  {"HGETALL",           &Proxy::command_forward_by_key_1},
+  {"HINCRBY",           &Proxy::command_forward_by_key_1},
+  {"HINCRBYFLOAT",      &Proxy::command_forward_by_key_1},
+  {"HKEYS",             &Proxy::command_forward_by_key_1},
+  {"HLEN",              &Proxy::command_forward_by_key_1},
+  {"HMGET",             &Proxy::command_forward_by_key_1},
+  {"HMSET",             &Proxy::command_forward_by_key_1},
+  {"HSCAN",             &Proxy::command_forward_by_key_1},
+  {"HSET",              &Proxy::command_forward_by_key_1},
+  {"HSETNX",            &Proxy::command_forward_by_key_1},
+  {"HSTRLEN",           &Proxy::command_forward_by_key_1},
+  {"HVALS",             &Proxy::command_forward_by_key_1},
+  {"INCR",              &Proxy::command_forward_by_key_1},
+  {"INCRBY",            &Proxy::command_forward_by_key_1},
+  {"INCRBYFLOAT",       &Proxy::command_forward_by_key_1},
+  {"INFO",              &Proxy::command_INFO},
+  {"KEYS",              &Proxy::command_KEYS},
+  {"LASTSAVE",          &Proxy::command_all_collect_responses},
+  {"LINDEX",            &Proxy::command_forward_by_key_1},
+  {"LINSERT",           &Proxy::command_forward_by_key_1},
+  {"LLEN",              &Proxy::command_forward_by_key_1},
+  {"LPOP",              &Proxy::command_forward_by_key_1},
+  {"LPUSH",             &Proxy::command_forward_by_key_1},
+  {"LPUSHX",            &Proxy::command_forward_by_key_1},
+  {"LRANGE",            &Proxy::command_forward_by_key_1},
+  {"LREM",              &Proxy::command_forward_by_key_1},
+  {"LSET",              &Proxy::command_forward_by_key_1},
+  {"LTRIM",             &Proxy::command_forward_by_key_1},
+  {"MGET",              &Proxy::command_partition_by_keys_1_multi},
+  {"MIGRATE",           &Proxy::command_MIGRATE},
+  {"MSET",              &Proxy::command_partition_by_keys_2_status},
+  {"MSETNX",            &Proxy::command_MSETNX},
+  {"OBJECT",            &Proxy::command_OBJECT},
+  {"PERSIST",           &Proxy::command_forward_by_key_1},
+  {"PEXPIRE",           &Proxy::command_forward_by_key_1},
+  {"PEXPIREAT",         &Proxy::command_forward_by_key_1},
+  {"PFADD",             &Proxy::command_forward_by_key_1},
+  {"PFCOUNT",           &Proxy::command_forward_by_keys_1_all},
+  {"PFMERGE",           &Proxy::command_forward_by_keys_1_all},
+  {"PING",              &Proxy::command_PING},
+  {"PSETEX",            &Proxy::command_forward_by_key_1},
+  {"PTTL",              &Proxy::command_forward_by_key_1},
+  {"QUIT",              &Proxy::command_QUIT},
+  {"RANDOMKEY",         &Proxy::command_forward_random},
+  {"RENAME",            &Proxy::command_forward_by_keys_1_all},
+  {"RENAMENX",          &Proxy::command_forward_by_keys_1_all},
+  {"RESTORE",           &Proxy::command_forward_by_key_1},
+  {"ROLE",              &Proxy::command_ROLE},
+  {"RPOP",              &Proxy::command_forward_by_key_1},
+  {"RPOPLPUSH",         &Proxy::command_forward_by_keys_1_all},
+  {"RPUSH",             &Proxy::command_forward_by_key_1},
+  {"RPUSHX",            &Proxy::command_forward_by_key_1},
+  {"SADD",              &Proxy::command_forward_by_key_1},
+  {"SAVE",              &Proxy::command_all_collect_status_responses},
+  {"SCAN",              &Proxy::command_SCAN},
+  {"SCARD",             &Proxy::command_forward_by_key_1},
+  {"SCRIPT",            &Proxy::command_SCRIPT},
+  {"SDIFF",             &Proxy::command_forward_by_keys_1_all},
+  {"SDIFFSTORE",        &Proxy::command_forward_by_keys_1_all},
+  {"SET",               &Proxy::command_forward_by_key_1},
+  {"SETBIT",            &Proxy::command_forward_by_key_1},
+  {"SETEX",             &Proxy::command_forward_by_key_1},
+  {"SETNX",             &Proxy::command_forward_by_key_1},
+  {"SETRANGE",          &Proxy::command_forward_by_key_1},
+  {"SHUTDOWN",          &Proxy::command_all_collect_status_responses},
+  {"SINTER",            &Proxy::command_forward_by_keys_1_all},
+  {"SINTERSTORE",       &Proxy::command_forward_by_keys_1_all},
+  {"SISMEMBER",         &Proxy::command_forward_by_key_1},
+  {"SLOWLOG",           &Proxy::command_all_collect_responses},
+  {"SMEMBERS",          &Proxy::command_forward_by_key_1},
+  {"SMOVE",             &Proxy::command_forward_by_keys_1_2},
+  {"SORT",              &Proxy::command_forward_by_key_1},
+  {"SPOP",              &Proxy::command_forward_by_key_1},
+  {"SRANDMEMBER",       &Proxy::command_forward_by_key_1},
+  {"SREM",              &Proxy::command_forward_by_key_1},
+  {"SSCAN",             &Proxy::command_forward_by_key_1},
+  {"STRLEN",            &Proxy::command_forward_by_key_1},
+  {"SUNION",            &Proxy::command_forward_by_keys_1_all},
+  {"SUNIONSTORE",       &Proxy::command_forward_by_keys_1_all},
+  {"TIME",              &Proxy::command_all_collect_responses},
+  {"TOUCH",             &Proxy::command_partition_by_keys_1_integer},
+  {"TTL",               &Proxy::command_forward_by_key_1},
+  {"TYPE",              &Proxy::command_forward_by_key_1},
+  {"UNLINK",            &Proxy::command_partition_by_keys_1_integer},
+  {"ZADD",              &Proxy::command_forward_by_key_1},
+  {"ZCARD",             &Proxy::command_forward_by_key_1},
+  {"ZCOUNT",            &Proxy::command_forward_by_key_1},
+  {"ZINCRBY",           &Proxy::command_forward_by_key_1},
+  {"ZINTERSTORE",       &Proxy::command_ZACTIONSTORE},
+  {"ZLEXCOUNT",         &Proxy::command_forward_by_key_1},
+  {"ZRANGE",            &Proxy::command_forward_by_key_1},
+  {"ZRANGEBYLEX",       &Proxy::command_forward_by_key_1},
+  {"ZRANGEBYSCORE",     &Proxy::command_forward_by_key_1},
+  {"ZRANK",             &Proxy::command_forward_by_key_1},
+  {"ZREM",              &Proxy::command_forward_by_key_1},
+  {"ZREMRANGEBYLEX",    &Proxy::command_forward_by_key_1},
+  {"ZREMRANGEBYRANK",   &Proxy::command_forward_by_key_1},
+  {"ZREMRANGEBYSCORE",  &Proxy::command_forward_by_key_1},
+  {"ZREVRANGE",         &Proxy::command_forward_by_key_1},
+  {"ZREVRANGEBYLEX",    &Proxy::command_forward_by_key_1},
+  {"ZREVRANGEBYSCORE",  &Proxy::command_forward_by_key_1},
+  {"ZREVRANK",          &Proxy::command_forward_by_key_1},
+  {"ZSCAN",             &Proxy::command_forward_by_key_1},
+  {"ZSCORE",            &Proxy::command_forward_by_key_1},
+  {"ZUNIONSTORE",       &Proxy::command_ZACTIONSTORE},
 
   // commands that aren't part of the official protocol
-  {"BACKEND",           &Proxy::command_BACKEND},    // key - Get the backend number that the given key hashes to
-  {"BACKENDNUM",        &Proxy::command_BACKENDNUM}, // key - Get the backend number that the given key hashes to
-  {"BACKENDS",          &Proxy::command_BACKENDS},   // - Get the list of all backend netlocs
-  {"FORWARD",           &Proxy::command_FORWARD},    // backendnum command [args] - forward the given command directly to the given backend
-  {"PRINTSTATE",        &Proxy::command_PRINTSTATE}, // - print the proxy's state to stderr
+  {"BACKEND",           &Proxy::command_BACKEND},
+  {"BACKENDNUM",        &Proxy::command_BACKENDNUM},
+  {"BACKENDS",          &Proxy::command_BACKENDS},
+  {"FORWARD",           &Proxy::command_FORWARD},
+  {"PRINTSTATE",        &Proxy::command_PRINTSTATE},
 });
