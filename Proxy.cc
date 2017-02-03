@@ -1434,25 +1434,49 @@ void Proxy::command_default(Client* c, shared_ptr<DataCommand> cmd) {
 // specific command implementations
 
 void Proxy::command_BACKEND(Client* c, shared_ptr<DataCommand> cmd) {
-  if (cmd->args.size() != 2) {
-    this->send_client_string_response(c, "ERR wrong number of arguments",
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
   }
 
-  const Backend& b = this->backend_for_key(cmd->args[1]);
-  this->send_client_string_response(c, b.name, Response::Type::Data);
+  if (cmd->args.size() == 2) {
+    const Backend& b = this->backend_for_key(cmd->args[1]);
+    this->send_client_string_response(c, b.name, Response::Type::Data);
+
+  } else {
+    Response r(Response::Type::Multi, cmd->args.size() - 1);
+    for (size_t arg_index = 1; arg_index < cmd->args.size(); arg_index++) {
+      const auto& arg = cmd->args[arg_index];
+      const Backend& b = this->backend_for_key(arg);
+      r.fields.emplace_back(new Response(Response::Type::Data, b.name));
+    }
+    this->send_client_response(c, &r);
+  }
 }
 
 void Proxy::command_BACKENDNUM(Client* c, shared_ptr<DataCommand> cmd) {
-  if (cmd->args.size() != 2) {
-    this->send_client_string_response(c, "ERR wrong number of arguments",
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
   }
 
-  int64_t backend_index = this->backend_index_for_key(cmd->args[1]);
-  this->send_client_int_response(c, backend_index, Response::Type::Integer);
+  if (cmd->args.size() == 2) {
+    int64_t backend_index = this->backend_index_for_key(cmd->args[1]);
+    this->send_client_int_response(c, backend_index, Response::Type::Integer);
+
+  } else {
+    Response r(Response::Type::Multi, cmd->args.size() - 1);
+    for (size_t arg_index = 1; arg_index < cmd->args.size(); arg_index++) {
+      const auto& arg = cmd->args[arg_index];
+      int64_t backend_index = this->backend_index_for_key(arg);
+      r.fields.emplace_back(new Response(Response::Type::Integer,
+          backend_index));
+      r.fields.back()->int_value = backend_index;
+    }
+    this->send_client_response(c, &r);
+  }
 }
 
 void Proxy::command_BACKENDS(Client* c, shared_ptr<DataCommand> cmd) {
