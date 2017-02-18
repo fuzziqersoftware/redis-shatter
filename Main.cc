@@ -13,6 +13,7 @@
 #include <phosg/Network.hh>
 #include <phosg/Strings.hh>
 #include <string>
+#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -22,8 +23,7 @@ using namespace std;
 
 
 struct Options {
-  size_t num_processes;
-  size_t process_num;
+  size_t num_threads;
 
   string listen_addr;
   int port;
@@ -35,12 +35,12 @@ struct Options {
   int hash_begin_delimiter;
   int hash_end_delimiter;
 
-  Options() : num_processes(1), process_num(0), listen_addr(""), port(6379),
-      listen_fd(-1), hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
+  Options() : num_threads(1), listen_addr(""), port(6379), listen_fd(-1),
+      hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
 
   void print(FILE* stream) const {
     fprintf(stream, "proxy configuration:\n");
-    fprintf(stream, "  worker processes     : %zu\n", this->num_processes);
+    fprintf(stream, "  worker threads       : %zu\n", this->num_threads);
 
     if (!this->listen_addr.empty()) {
       fprintf(stream, "  service address      : %s\n", this->listen_addr.c_str());
@@ -77,7 +77,7 @@ struct Options {
       this->listen_fd = atoi(&option[12]);
 
     } else if (!strncmp(option, "--parallel=", 11)) {
-      this->num_processes = atoi(&option[11]);
+      this->num_threads = atoi(&option[11]);
 
     } else if (!strncmp(option, "--config-file=", 14)) {
       this->execute_options_from_file(&option[14]);
@@ -153,15 +153,13 @@ int main(int argc, char** argv) {
     log(ERROR, "no backends specified");
     return 2;
   }
-  if (opt.num_processes < 1) {
-    log(ERROR, "at least 1 process must be running");
+  if (opt.num_threads < 1) {
+    log(ERROR, "at least 1 thread must be running");
     return 2;
   }
 
   srand(getpid() ^ time(NULL));
   signal(SIGPIPE, SIG_IGN);
-
-  // TODO: port everything after here
 
   // if there's no listening socket from a parent process, open a new one
   if (opt.listen_fd == -1) {
@@ -180,43 +178,31 @@ int main(int argc, char** argv) {
 
   evutil_make_socket_nonblocking(opt.listen_fd);
 
-  // fork child workers if desired
-  if (opt.num_processes > 1) {
-    for (opt.process_num = 0; opt.process_num < opt.num_processes;
-        opt.process_num++) {
-      pid_t child_pid = fork();
-      if (child_pid == 0) {
-        break;
-      }
-      fprintf(stderr, "started worker process %d\n", child_pid);
+  // if there's only one thread, just have the main thread do the work
+  auto hosts = ConsistentHashRing::Host::parse_netloc_list(opt.backend_netlocs,
+      6379);
+  shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
+  if (opt.num_threads == 1) {
+    Proxy p(opt.listen_fd, hosts, opt.hash_begin_delimiter,
+        opt.hash_end_delimiter, stats, 0);
+    fprintf(stderr, "ready for connections\n");
+    p.serve();
+
+  } else {
+    fprintf(stderr, "starting %zu proxy instances\n", opt.num_threads);
+    vector<thread> threads;
+    vector<unique_ptr<Proxy>> proxies;
+    while (threads.size() < opt.num_threads) {
+      proxies.emplace_back(new Proxy(opt.listen_fd, hosts,
+          opt.hash_begin_delimiter, opt.hash_end_delimiter, stats,
+          proxies.size()));
+      threads.emplace_back(&Proxy::serve, proxies.back().get());
     }
-    if (opt.process_num == opt.num_processes) {
-      while (opt.num_processes) {
-        // master process monitors the children and doesn't serve anything
-        int exit_status;
-        pid_t terminated_pid = wait(&exit_status);
-        if (WIFSIGNALED(exit_status)) {
-          fprintf(stderr, "worker %d terminated due to signal %d\n", terminated_pid,
-              WTERMSIG(exit_status));
-        } else if (WIFEXITED(exit_status)) {
-          fprintf(stderr, "worker %d exited with code %d\n", terminated_pid,
-              WEXITSTATUS(exit_status));
-        } else {
-          fprintf(stderr, "worker %d terminated for unknown reasons; exit_status = %d\n",
-              terminated_pid, exit_status);
-        }
-      }
-      fprintf(stderr, "all workers have terminated; exiting\n");
-      exit(0);
+    fprintf(stderr, "ready for connections\n");
+    for (auto& t : threads) {
+      t.join();
     }
   }
 
-  // create the proxy and serve
-  auto hosts = ConsistentHashRing::Host::parse_netloc_list(opt.backend_netlocs,
-      6379);
-  Proxy p(opt.listen_fd, hosts, opt.hash_begin_delimiter, opt.hash_end_delimiter);
-
-  fprintf(stderr, "ready for connections\n");
-  p.serve();
   return 0;
 }

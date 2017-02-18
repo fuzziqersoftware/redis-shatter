@@ -191,6 +191,18 @@ struct ResponseLink {
 
 class Proxy {
 public:
+  struct Stats {
+    std::atomic<size_t> num_commands_received;
+    std::atomic<size_t> num_commands_sent;
+    std::atomic<size_t> num_responses_received;
+    std::atomic<size_t> num_responses_sent;
+    std::atomic<size_t> num_connections_received;
+    std::atomic<size_t> num_clients;
+    uint64_t start_time;
+
+    Stats();
+  };
+
   struct Netloc {
     std::string name;
     std::string host;
@@ -198,7 +210,8 @@ public:
   };
 
   Proxy(int listen_fd, const std::vector<ConsistentHashRing::Host>& hosts,
-      int hash_begin_delimiter = -1, int hash_end_delimiter = -1);
+      int hash_begin_delimiter = -1, int hash_end_delimiter = -1,
+      std::shared_ptr<Stats> stats = NULL, size_t proxy_index = 0);
   Proxy(const Proxy&) = delete;
   Proxy(Proxy&&) = delete;
   Proxy& operator=(const Proxy&) = delete;
@@ -224,12 +237,8 @@ private:
   std::unordered_map<struct bufferevent*, Client> bev_to_client;
 
   // stats
-  size_t num_commands_received;
-  size_t num_commands_sent;
-  size_t num_responses_received;
-  size_t num_responses_sent;
-  size_t num_connections_received;
-  uint64_t start_time;
+  size_t proxy_index;
+  std::shared_ptr<Stats> stats;
 
   // hash configuration
   int hash_begin_delimiter;

@@ -259,18 +259,25 @@ void ResponseLink::print(FILE* stream, int indent_level) const {
 ////////////////////////////////////////////////////////////////////////////////
 // Proxy public functions
 
+Proxy::Stats::Stats() : num_commands_received(0), num_commands_sent(0),
+    num_responses_received(0), num_responses_sent(0),
+    num_connections_received(0), num_clients(0), start_time(now()) { }
+
 Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
-    int hash_begin_delimiter, int hash_end_delimiter) :
-    listen_fd(listen_fd), base(event_base_new(), event_base_free),
+    int hash_begin_delimiter, int hash_end_delimiter, shared_ptr<Stats> stats,
+    size_t proxy_index) : listen_fd(listen_fd),
+    base(event_base_new(), event_base_free),
     listener(evconnlistener_new(this->base.get(),
         Proxy::dispatch_on_client_accept, this, LEV_OPT_REUSEABLE, 0,
         this->listen_fd), evconnlistener_free),
     ring(hosts), index_to_backend(), name_to_backend(), bev_to_backend_conn(),
-    bev_to_client(), num_commands_received(0), num_commands_sent(0),
-    num_responses_received(0), num_responses_sent(0),
-    num_connections_received(0), start_time(now()),
+    bev_to_client(), proxy_index(proxy_index), stats(stats),
     hash_begin_delimiter(hash_begin_delimiter),
     hash_end_delimiter(hash_end_delimiter), handlers(this->default_handlers) {
+
+  if (!this->stats.get()) {
+    this->stats.reset(new Stats());
+  }
 
   evconnlistener_set_error_cb(this->listener.get(), Proxy::dispatch_on_listen_error);
 
@@ -289,7 +296,6 @@ bool Proxy::disable_command(const string& command_name) {
 }
 
 void Proxy::serve() {
-  this->start_time = now();
   event_base_dispatch(this->base.get());
 }
 
@@ -301,9 +307,11 @@ void Proxy::print(FILE* stream, int indent_level) const {
   }
 
   fprintf(stream, "Proxy[listen_fd=%d, num_clients=%zu, io_counts=[%zu, %zu, %zu, %zu], clients=[\n",
-      this->listen_fd, this->bev_to_client.size(), this->num_commands_received,
-      this->num_commands_sent, this->num_responses_received,
-      this->num_responses_sent);
+      this->listen_fd, this->bev_to_client.size(),
+      this->stats->num_commands_received.load(),
+      this->stats->num_commands_sent.load(),
+      this->stats->num_responses_received.load(),
+      this->stats->num_responses_sent.load());
 
   for (const auto& bev_client : this->bev_to_client) {
     print_indent(stream, indent_level + 1);
@@ -427,6 +435,7 @@ void Proxy::disconnect_client(Client* c) {
   auto bev_it = this->bev_to_client.find(c->bev.get());
   assert((bev_it != this->bev_to_client.end()) && (&bev_it->second == c));
   this->bev_to_client.erase(bev_it);
+  this->stats->num_clients--;
   // the Client destructor will close the connection and unlink any ResponseLink
   // objects appropriately
 }
@@ -501,7 +510,7 @@ void Proxy::link_connection(BackendConnection* conn, ResponseLink* l) {
 
   conn->num_commands_sent++;
   conn->backend->num_commands_sent++;
-  this->num_commands_sent++;
+  this->stats->num_commands_sent++;
 }
 
 void Proxy::send_command_and_link(BackendConnection* conn, ResponseLink* l,
@@ -545,7 +554,7 @@ void Proxy::send_client_response(Client* c, const Response* r) {
 
   r->write(out);
   c->num_responses_sent++;
-  this->num_responses_sent++;
+  this->stats->num_responses_sent++;
 }
 
 void Proxy::send_client_response(Client* c, const shared_ptr<const Response>& r) {
@@ -564,7 +573,7 @@ void Proxy::send_client_string_response(Client* c, const char* s,
 
   Response::write_string(out, s, type);
   c->num_responses_sent++;
-  this->num_responses_sent++;
+  this->stats->num_responses_sent++;
 }
 
 void Proxy::send_client_string_response(Client* c, const string& s,
@@ -579,7 +588,7 @@ void Proxy::send_client_string_response(Client* c, const string& s,
 
   Response::write_string(out, s.data(), s.size(), type);
   c->num_responses_sent++;
-  this->num_responses_sent++;
+  this->stats->num_responses_sent++;
 }
 
 void Proxy::send_client_string_response(Client* c, const void* data,
@@ -594,7 +603,7 @@ void Proxy::send_client_string_response(Client* c, const void* data,
 
   Response::write_string(out, data, size, type);
   c->num_responses_sent++;
-  this->num_responses_sent++;
+  this->stats->num_responses_sent++;
 }
 
 void Proxy::send_client_int_response(Client* c, int64_t int_value,
@@ -609,7 +618,7 @@ void Proxy::send_client_int_response(Client* c, int64_t int_value,
 
   Response::write_int(out, int_value, type);
   c->num_responses_sent++;
-  this->num_responses_sent++;
+  this->stats->num_responses_sent++;
 }
 
 
@@ -1072,7 +1081,7 @@ void Proxy::on_client_input(struct bufferevent *bev) {
   try {
     while (!c.should_disconnect && (cmd = c.parser.resume(in_buffer))) {
       c.num_commands_received++;
-      this->num_commands_received++;
+      this->stats->num_commands_received++;
       this->handle_client_command(&c, cmd);
     }
 
@@ -1138,9 +1147,9 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
 
       conn->num_responses_received++;
       conn->backend->num_responses_received++;
-      this->num_responses_received++;
+      this->stats->num_responses_received++;
       l->client->num_responses_sent++;
-      this->num_responses_sent++;
+      this->stats->num_responses_sent++;
 
       // a full response was forwarded; delete the wait object
       // TODO: factor this out
@@ -1179,7 +1188,7 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
 
       conn->num_responses_received++;
       conn->backend->num_responses_received++;
-      this->num_responses_received++;
+      this->stats->num_responses_received++;
       this->handle_backend_response(conn, rsp);
     }
   }
@@ -1246,7 +1255,8 @@ void Proxy::on_client_accept(struct evconnlistener *listener,
   // create a Client for this connection
   this->bev_to_client.emplace(piecewise_construct,
       forward_as_tuple(raw_bev), forward_as_tuple(move(bev)));
-  this->num_connections_received++;
+  this->stats->num_connections_received++;
+  this->stats->num_clients++;
 
   // set read/error callbacks and enable i/o
   bufferevent_setcb(raw_bev, Proxy::dispatch_on_client_input, NULL,
@@ -1715,7 +1725,7 @@ void Proxy::command_INFO(Client* c, shared_ptr<DataCommand> cmd) {
       sprintf(hash_end_delimiter_str, "NULL");
     }
 
-    uint64_t uptime = now() - this->start_time;
+    uint64_t uptime = now() - this->stats->start_time;
 
     Response r(Response::Type::Data, "\
 # Counters\n\
@@ -1725,6 +1735,7 @@ num_responses_received:%zu\n\
 num_responses_sent:%zu\n\
 num_connections_received:%zu\n\
 num_clients:%zu\n\
+num_clients_this_instance:%zu\n\
 num_backends:%zu\n\
 \n\
 # Timing\n\
@@ -1733,13 +1744,18 @@ uptime_usecs:%" PRIu64 "\n\
 \n\
 # Configuration\n\
 process_id:%d\n\
+proxy_index:%zu\n\
 hash_begin_delimiter:%s\n\
 hash_end_delimiter:%s\n\
-", this->num_commands_received, this->num_commands_sent,
-        this->num_responses_received, this->num_responses_sent,
-        this->num_connections_received, this->bev_to_client.size(),
-        this->index_to_backend.size(), this->start_time, uptime,
-        getpid_cached(), hash_begin_delimiter_str, hash_end_delimiter_str);
+", this->stats->num_commands_received.load(),
+        this->stats->num_commands_sent.load(),
+        this->stats->num_responses_received.load(),
+        this->stats->num_responses_sent.load(),
+        this->stats->num_connections_received.load(),
+        this->stats->num_clients.load(), this->bev_to_client.size(),
+        this->index_to_backend.size(), this->stats->start_time, uptime,
+        getpid_cached(), this->proxy_index, hash_begin_delimiter_str,
+        hash_end_delimiter_str);
     this->send_client_response(c, &r);
     return;
   }
