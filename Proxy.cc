@@ -1125,8 +1125,11 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
   struct evbuffer* in_buffer = bufferevent_get_input(bev);
 
   for (;;) {
-    // if the head of the queue is a forwarding client, then use the forwarding
-    // parser (don't allocate a response object)
+    // if there's no client on the queue or if the head of the queue is a
+    // forwarding client, then use the forwarding parser (don't allocate a
+    // response object). in the first case, the response will be discarded
+    // (probably the client disconnected early); in the second case, the
+    // response will be forwarded verbatim to the client.
     auto* l = conn->head_link;
     if (!l || (l->type == CollectionType::ForwardResponse)) {
       struct evbuffer* out_buffer = NULL;
