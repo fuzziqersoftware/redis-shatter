@@ -1249,6 +1249,15 @@ void Proxy::on_client_accept(struct evconnlistener *listener,
     fcntl(fd, F_SETFD, fd_flags);
   }
 
+  // enable TCP keepalive on the socket
+  int optval = 1;
+  socklen_t optlen = sizeof(optval);
+  if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen) < 0) {
+    string error = string_for_error(errno);
+    fprintf(stderr, "warning: failed to enable tcp keepalive on fd %d (%s)\n",
+        fd, error.c_str());
+  }
+
   // set up a bufferevent for the new connection
   struct bufferevent* raw_bev = bufferevent_socket_new(this->base.get(), fd,
       BEV_OPT_CLOSE_ON_FREE);
