@@ -390,34 +390,31 @@ BackendConnection& Proxy::backend_conn_for_index(size_t index) {
   }
 
   // there's no open connection for this backend; make a new one
-  int fd = connect(b.host, b.port);
-  if (fd < 0) {
+  unique_ptr<struct bufferevent, void(*)(struct bufferevent*)> bev(
+      bufferevent_socket_new(this->base.get(), -1, BEV_OPT_CLOSE_ON_FREE),
+      bufferevent_free);
+  bufferevent_setcb(bev.get(), Proxy::dispatch_on_backend_input, NULL,
+      Proxy::dispatch_on_backend_error, this);
+
+  // connect to the backend (nonblocking)
+  auto s = make_sockaddr_storage(b.host, b.port);
+  if (bufferevent_socket_connect(bev.get(), (struct sockaddr*)&s.first,
+      s.second) < 0) {
     string error = string_for_error(errno);
     throw runtime_error(string_printf(
-        "error: can\'t connect to backend %s:%d (fd=%d, errno=%d) (%s)\n",
-        b.host.c_str(), b.port, fd, errno, error.c_str()));
+        "error: can\'t connect to backend %s:%d (errno=%d) (%s)\n",
+        b.host.c_str(), b.port, errno, error.c_str()));
   }
 
-  int fd_flags = fcntl(fd, F_GETFD, 0);
-  if (fd_flags >= 0) {
-    fd_flags |= FD_CLOEXEC;
-    fcntl(fd, F_SETFD, fd_flags);
-  }
+  // allow reads & writes (though data won't be sent until it's connected)
+  bufferevent_enable(bev.get(), EV_READ | EV_WRITE);
 
-  // set up a bufferevent for the new connection
-  unique_ptr<struct bufferevent, void(*)(struct bufferevent*)> bev(
-      bufferevent_socket_new(this->base.get(), fd, BEV_OPT_CLOSE_ON_FREE),
-      bufferevent_free);
-
+  // track this connection
   BackendConnection& conn = b.index_to_connection.emplace(piecewise_construct,
       forward_as_tuple(b.next_connection_index),
       forward_as_tuple(&b, b.next_connection_index, move(bev))).first->second;
   b.next_connection_index++;
   this->bev_to_backend_conn[conn.bev.get()] = &conn;
-
-  bufferevent_setcb(conn.bev.get(), Proxy::dispatch_on_backend_input, NULL,
-      Proxy::dispatch_on_backend_error, this);
-  bufferevent_enable(conn.bev.get(), EV_READ | EV_WRITE);
 
   return conn;
 }
