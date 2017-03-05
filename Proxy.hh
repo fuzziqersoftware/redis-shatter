@@ -361,6 +361,9 @@ private:
   void command_SCRIPT(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_ZACTIONSTORE(Client* c, std::shared_ptr<DataCommand> cmd);
 
+  // helpers for command implementations
+  uint8_t scan_cursor_backend_index_bits() const;
+
   // handler index
   typedef void (Proxy::*command_handler)(Client* c,
       std::shared_ptr<DataCommand> cmd);

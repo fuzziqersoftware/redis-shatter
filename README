@@ -260,10 +260,10 @@ Notes:
       DBSIZE. If 'x' exists on backend 5 and not 3, then 'x' will appear once in
       the KEYS/SCAN results but 'GET x' will return nil.
 *B -- SCAN over the entire keyspace is implemented by scanning on each backend
-      in turn. To keep track of which backend the client is currently
-      considering, the cursor format is not a single integer; rather, it's a
-      colon-separated pair of integers. The only exceptions are the initial and
-      final cursors, which are still "0" to conform to protocol.
+      in turn. The proxy uses the highest-order bits of the cursor to keep track
+      of which backend is currently being scanned. If the backend returns a
+      cursor that has any of these bits set, the scan will fail. Most practical
+      setups shouldn't run into this limit.
 *C -- The returned fields are different from redis-server. They are:
       - name: the client's name (this includes the host:port string).
       - cmdrecv: number of commands received from this client.

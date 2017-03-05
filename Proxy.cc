@@ -784,19 +784,37 @@ void Proxy::send_ready_response(ResponseLink* l) {
       if (cursor->data == "0") {
         int64_t next_backend_id = l->scan_backend_index + 1;
         if (next_backend_id < this->index_to_backend.size()) {
+          // the next cursor should be 0, but on the next backend
+          uint8_t index_bits = this->scan_cursor_backend_index_bits();
           l->response_to_forward->fields[0]->data = string_printf(
-              "%" PRId64 ":0", next_backend_id);
+              "%" PRIu64, next_backend_id << (64 - index_bits));
         }
 
-      // if this backend isn't done, add the backend prefix on the cursor
+      // if this backend isn't done, add the current backend index to the cursor
       } else {
-        // there might be a use-after-free if we just reassign cursor->data,
-        // since cursor.data is heap-allocated and may be freed before
-        // string_printf is called
-        string cursor_contents = cursor->data;
-        cursor->data = string_printf("%" PRId64 ":%.*s",
-            l->scan_backend_index, cursor_contents.size(),
-            cursor_contents.data());
+
+        // parse the cursor value
+        char* endptr;
+        uint64_t cursor_value = strtoull(cursor->data.data(), &endptr, 0);
+        if (endptr == cursor->data.data()) {
+          this->send_client_string_response(l->client,
+              "PROXYERROR the backend returned a non-integer cursor",
+              Response::Type::Error);
+          break;
+        }
+
+        // if the backend index overwrites part of the cursor, return an error
+        // what the heck are you storing in redis if the cursor is that large?
+        uint8_t index_bits = this->scan_cursor_backend_index_bits();
+        if (cursor_value & ~((1 << (64 - index_bits)) - 1)) {
+          this->send_client_string_response(l->client,
+              "PROXYERROR the backend\'s keyspace is too large",
+              Response::Type::Error);
+          break;
+        }
+
+        cursor_value |= (l->scan_backend_index << (64 - index_bits));
+        cursor->data = string_printf("%" PRIu64, cursor_value);
       }
 
       this->send_client_response(l->client, l->response_to_forward);
@@ -1959,30 +1977,36 @@ void Proxy::command_SCAN(Client* c, shared_ptr<DataCommand> cmd) {
     return;
   }
 
-  // cursor is formatted as "backend_index:cursor"
-  size_t colon_offset = cmd->args[1].find(':');
-  if (colon_offset == string::npos) {
+  // parse the cursor value
+  char* endptr;
+  uint64_t cursor = strtoull(cmd->args[1].data(), &endptr, 0);
+  if (endptr == cmd->args[1].data()) {
     this->send_client_string_response(c,
-        "PROXYERROR cursor format is incorrect", Response::Type::Error);
+        "ERR cursor format is incorrect", Response::Type::Error);
     return;
   }
 
-  // parse backend_num and cursor_contents
-  char* endptr;
-  int64_t backend_index = strtoll(cmd->args[1].data(), &endptr, 0);
-  if ((endptr == cmd->args[1].data()) ||
-      (backend_index < 0 || backend_index >= this->index_to_backend.size())) {
+  // the highest-order bits of the cursor are the backend index; the rest are
+  // the cursor on that backend
+  uint8_t index_bits = this->scan_cursor_backend_index_bits();
+  int64_t backend_index = (cursor >> (64 - index_bits)) &
+      ((1 << index_bits) - 1);
+  if ((backend_index < 0) || (backend_index >= this->index_to_backend.size())) {
     this->send_client_string_response(c,
-        "ERR cursor refers to a nonexistent backend", Response::Type::Error);
+        "PROXYERROR cursor refers to a nonexistent backend",
+        Response::Type::Error);
     return;
   }
+
+  // remove the backend index from the cursor
+  cursor &= ((1 << (64 - index_bits)) - 1);
 
   // create backend command. note that we can't easily use ReferenceCommand
   // because we're reconstructing one of the arguments; it's probably not worth
   // it anyway because SCAN usually only takes a few short arguments
   shared_ptr<DataCommand> backend_cmd(new DataCommand());
   backend_cmd->args = cmd->args;
-  backend_cmd->args[1] = cmd->args[1].substr(colon_offset + 1);
+  backend_cmd->args[1] = string_printf("%" PRIu64, cursor);
 
   // send command
   BackendConnection& conn = this->backend_conn_for_index(backend_index);
@@ -2049,6 +2073,20 @@ void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
   BackendConnection& conn = this->backend_conn_for_index(backend_index);
   auto l = this->create_link(CollectionType::ForwardResponse, c);
   this->send_command_and_link(&conn, l, cmd);
+}
+
+
+
+uint8_t Proxy::scan_cursor_backend_index_bits() const {
+  size_t backend_count = this->index_to_backend.size();
+
+  // if the backend count is a power of two, we don't need an extra bit
+  if ((backend_count & (backend_count - 1)) == 0) {
+    return 63 - __builtin_clzll(backend_count);
+  } else {
+    return 64 - __builtin_clzll(backend_count);
+  }
+
 }
 
 
