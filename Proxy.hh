@@ -172,7 +172,7 @@ struct ResponseLink {
   Response::Type expected_response_type;
   std::vector<std::shared_ptr<Response>> responses;
 
-  std::deque<int64_t> recombination_queue;
+  std::vector<size_t> recombination_queue;
   std::unordered_map<int64_t, std::shared_ptr<Response>> backend_index_to_response;
 
   int64_t scan_backend_index;

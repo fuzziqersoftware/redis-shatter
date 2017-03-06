@@ -1397,15 +1397,18 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
         Response::Type::Error);
     return;
   }
-  size_t num_keys = (cmd->args.size() - 1) / args_per_key;
+  size_t num_keys = (cmd->args.size() - start_arg_index) / args_per_key;
 
   // set up the ResponseLink
   auto l = this->create_link(type, c);
+  if (l->type == CollectionType::CollectMultiResponsesByKey) {
+    l->recombination_queue.reserve(num_keys);
+  }
 
   // compute the backend for each key, creating command objects as needed
-  unordered_map<int64_t, ReferenceCommand> backend_index_to_command;
+  vector<ReferenceCommand> backend_commands(this->index_to_backend.size());
   for (size_t y = 0; y < num_keys; y++) {
-    size_t base_arg_index = (y * args_per_key) + 1;
+    size_t base_arg_index = (y * args_per_key) + start_arg_index;
     int64_t backend_index = this->backend_index_for_key(
         cmd->args[base_arg_index]);
 
@@ -1415,12 +1418,16 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
       l->recombination_queue.emplace_back(backend_index);
     }
 
-    // copy the keys into the commands, creating them if needed
-    auto& backend_cmd = backend_index_to_command[backend_index];
+    // create the backend command if needed
+    auto& backend_cmd = backend_commands[backend_index];
     if (backend_cmd.args.empty()) {
-      const string& arg = cmd->args[0];
-      backend_cmd.args.emplace_back(arg.data(), arg.size());
+      for (size_t z = 0; z < start_arg_index; z++) {
+        const string& arg = cmd->args[z];
+        backend_cmd.args.emplace_back(arg.data(), arg.size());
+      }
     }
+
+    // add the key to the backend command
     for (size_t z = 0; z < args_per_key; z++) {
       const string& arg = cmd->args[base_arg_index + z];
       backend_cmd.args.emplace_back(arg.data(), arg.size());
@@ -1428,28 +1435,45 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
   }
 
   // send the commands off
-  for (const auto& it : backend_index_to_command) {
-    BackendConnection& conn = this->backend_conn_for_index(it.first);
-    this->send_command_and_link(&conn, l, &it.second);
+  for (size_t backend_index = 0; backend_index < this->index_to_backend.size();
+       backend_index++) {
+    const auto& backend_cmd = backend_commands[backend_index];
+    if (backend_cmd.args.empty()) {
+      continue;
+    }
+    BackendConnection& conn = this->backend_conn_for_index(backend_index);
+    this->send_command_and_link(&conn, l, &backend_cmd);
   }
 }
 
 void Proxy::command_partition_by_keys_1_integer(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 1, 1,
-      CollectionType::SumIntegerResponses);
+  if (cmd->args.size() == 2) {
+    this->command_forward_by_key_1(c, cmd);
+  } else {
+    this->command_partition_by_keys(c, cmd, 1, 1,
+        CollectionType::SumIntegerResponses);
+  }
 }
 
 void Proxy::command_partition_by_keys_1_multi(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 1, 1,
-      CollectionType::CollectMultiResponsesByKey);
+  if (cmd->args.size() == 2) {
+    this->command_forward_by_key_1(c, cmd);
+  } else {
+    this->command_partition_by_keys(c, cmd, 1, 1,
+        CollectionType::CollectMultiResponsesByKey);
+  }
 }
 
 void Proxy::command_partition_by_keys_2_status(Client* c,
     shared_ptr<DataCommand> cmd) {
-  this->command_partition_by_keys(c, cmd, 1, 2,
-      CollectionType::CollectStatusResponses);
+  if (cmd->args.size() == 3) {
+    this->command_forward_by_key_1(c, cmd);
+  } else {
+    this->command_partition_by_keys(c, cmd, 1, 2,
+        CollectionType::CollectStatusResponses);
+  }
 }
 
 void Proxy::command_unimplemented(Client* c, shared_ptr<DataCommand> cmd) {
@@ -2001,18 +2025,23 @@ void Proxy::command_SCAN(Client* c, shared_ptr<DataCommand> cmd) {
   // remove the backend index from the cursor
   cursor &= ((1 << (64 - index_bits)) - 1);
 
-  // create backend command. note that we can't easily use ReferenceCommand
-  // because we're reconstructing one of the arguments; it's probably not worth
-  // it anyway because SCAN usually only takes a few short arguments
-  shared_ptr<DataCommand> backend_cmd(new DataCommand());
-  backend_cmd->args = cmd->args;
-  backend_cmd->args[1] = string_printf("%" PRIu64, cursor);
+  // create backend command. it's ok for the modified argument to be on the
+  // stack of this function because send_command_and_link calls evbuffer_add
+  // which resolves the data reference
+  string cursor_str = string_printf("%" PRIu64, cursor);
+  ReferenceCommand backend_cmd(cmd->args.size());
+  backend_cmd.args.emplace_back(cmd->args[0].data(), cmd->args[0].size());
+  backend_cmd.args.emplace_back(cursor_str.data(), cursor_str.size());
+  for (size_t x = 2; x < cmd->args.size(); x++) {
+    auto& arg = cmd->args[x];
+    backend_cmd.args.emplace_back(arg.data(), arg.size());
+  }
 
   // send command
   BackendConnection& conn = this->backend_conn_for_index(backend_index);
   auto l = this->create_link(CollectionType::ModifyScanResponse, c);
   l->scan_backend_index = backend_index;
-  this->send_command_and_link(&conn, l, backend_cmd);
+  this->send_command_and_link(&conn, l, &backend_cmd);
 }
 
 void Proxy::command_SCRIPT(Client* c, shared_ptr<DataCommand> cmd) {
