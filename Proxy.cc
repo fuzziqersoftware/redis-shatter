@@ -644,6 +644,9 @@ static shared_ptr<Response> no_data_error_response(
 
 void Proxy::send_ready_response(ResponseLink* l) {
 
+  // this should only be called when the client is known to be valid
+  assert(l->client);
+
   if (l->error_response) {
     this->send_client_response(l->client, l->error_response);
     return;
@@ -1164,7 +1167,9 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
       conn->num_responses_received++;
       conn->backend->num_responses_received++;
       this->stats->num_responses_received++;
-      l->client->num_responses_sent++;
+      if (l->client) {
+        l->client->num_responses_sent++;
+      }
       this->stats->num_responses_sent++;
 
       // a full response was forwarded; delete the wait object
@@ -1180,9 +1185,11 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
       }
       l->backend_conn_to_next_link.erase(next_link_it);
 
-      l->client->head_link = l->next_client;
-      if (!l->client->head_link) {
-        l->client->tail_link = NULL;
+      if (l->client) {
+        l->client->head_link = l->next_client;
+        if (!l->client->head_link) {
+          l->client->tail_link = NULL;
+        }
       }
 
       assert(l->is_ready());
