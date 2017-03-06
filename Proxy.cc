@@ -270,9 +270,9 @@ Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
     listener(evconnlistener_new(this->base.get(),
         Proxy::dispatch_on_client_accept, this, LEV_OPT_REUSEABLE, 0,
         this->listen_fd), evconnlistener_free),
-    ring(hosts), backends(), name_to_backend(), bev_to_backend_conn(),
-    bev_to_client(), proxy_index(proxy_index), stats(stats),
-    hash_begin_delimiter(hash_begin_delimiter),
+    should_exit(false), ring(hosts), backends(), name_to_backend(),
+    bev_to_backend_conn(), bev_to_client(), proxy_index(proxy_index),
+    stats(stats), hash_begin_delimiter(hash_begin_delimiter),
     hash_end_delimiter(hash_end_delimiter), handlers(this->default_handlers) {
 
   if (!this->stats.get()) {
@@ -295,7 +295,19 @@ bool Proxy::disable_command(const string& command_name) {
 }
 
 void Proxy::serve() {
+  struct timeval tv = {1, 0}; // 1 second
+
+  struct event* ev = event_new(this->base.get(), -1, EV_PERSIST,
+      &Proxy::dispatch_check_for_thread_exit, this);
+  event_add(ev, &tv);
+
   event_base_dispatch(this->base.get());
+
+  event_del(ev);
+}
+
+void Proxy::stop() {
+  this->should_exit = true;
 }
 
 void Proxy::print(FILE* stream, int indent_level) const {
@@ -1295,6 +1307,25 @@ void Proxy::on_client_accept(struct evconnlistener *listener,
       Proxy::dispatch_on_client_error, this);
   bufferevent_enable(raw_bev, EV_READ | EV_WRITE);
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////
+// timer event handlers
+
+void Proxy::dispatch_check_for_thread_exit(evutil_socket_t fd, short what,
+    void* ctx) {
+  ((Proxy*)ctx)->check_for_thread_exit(fd, what);
+}
+
+
+void Proxy::check_for_thread_exit(evutil_socket_t fd, short what) {
+  if (this->should_exit) {
+    event_base_loopexit(this->base.get(), NULL);
+  }
+}
+
+
 
 
 

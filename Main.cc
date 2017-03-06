@@ -22,6 +22,13 @@
 using namespace std;
 
 
+bool should_exit = false;
+
+void sigint_handler(int signum) {
+  should_exit = true;
+}
+
+
 struct Options {
   size_t num_threads;
 
@@ -160,6 +167,7 @@ int main(int argc, char** argv) {
 
   srand(getpid() ^ time(NULL));
   signal(SIGPIPE, SIG_IGN);
+  signal(SIGINT, sigint_handler);
 
   // if there's no listening socket from a parent process, open a new one
   if (opt.listen_fd == -1) {
@@ -198,7 +206,20 @@ int main(int argc, char** argv) {
           proxies.size()));
       threads.emplace_back(&Proxy::serve, proxies.back().get());
     }
+
     fprintf(stderr, "ready for connections\n");
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    while (!should_exit) {
+      sigsuspend(&sigset);
+    }
+
+    fprintf(stderr, "stopping proxy instances\n");
+    for (auto& p : proxies) {
+      p->stop();
+    }
+
+    fprintf(stderr, "waiting for proxy instances to terminate\n");
     for (auto& t : threads) {
       t.join();
     }

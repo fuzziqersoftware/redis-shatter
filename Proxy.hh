@@ -220,6 +220,7 @@ public:
   bool disable_command(const std::string& command_name);
 
   void serve();
+  void stop();
 
   void print(FILE* stream, int indent_level = 0) const;
 
@@ -228,6 +229,7 @@ private:
   int listen_fd;
   std::unique_ptr<struct event_base, void(*)(struct event_base*)> base;
   std::unique_ptr<struct evconnlistener, void(*)(struct evconnlistener*)> listener;
+  bool should_exit;
 
   // connection indexing and lookup
   ConsistentHashRing ring;
@@ -306,6 +308,11 @@ private:
       evutil_socket_t fd, struct sockaddr *address, int socklen, void* ctx);
   void on_client_accept(struct evconnlistener *listener, evutil_socket_t fd,
       struct sockaddr *address, int socklen);
+
+  // timer event handlers
+  static void dispatch_check_for_thread_exit(evutil_socket_t fd, short what,
+      void* ctx);
+  void check_for_thread_exit(evutil_socket_t fd, short what);
 
   // generic command implementations
   void command_all_collect_responses(Client* c,
