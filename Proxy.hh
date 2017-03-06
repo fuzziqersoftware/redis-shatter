@@ -231,7 +231,7 @@ private:
 
   // connection indexing and lookup
   ConsistentHashRing ring;
-  std::unordered_map<int64_t, Backend> index_to_backend;
+  std::vector<Backend*> backends;
   std::unordered_map<std::string, Backend*> name_to_backend;
   std::unordered_map<struct bufferevent*, BackendConnection*> bev_to_backend_conn;
   std::unordered_map<struct bufferevent*, Client> bev_to_client;

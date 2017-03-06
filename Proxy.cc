@@ -270,7 +270,7 @@ Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
     listener(evconnlistener_new(this->base.get(),
         Proxy::dispatch_on_client_accept, this, LEV_OPT_REUSEABLE, 0,
         this->listen_fd), evconnlistener_free),
-    ring(hosts), index_to_backend(), name_to_backend(), bev_to_backend_conn(),
+    ring(hosts), backends(), name_to_backend(), bev_to_backend_conn(),
     bev_to_client(), proxy_index(proxy_index), stats(stats),
     hash_begin_delimiter(hash_begin_delimiter),
     hash_end_delimiter(hash_end_delimiter), handlers(this->default_handlers) {
@@ -283,11 +283,10 @@ Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
 
   // set up backend structures
   for (const auto& host : hosts) {
-    Backend& b = this->index_to_backend.emplace(piecewise_construct,
-        forward_as_tuple(this->index_to_backend.size()),
-        forward_as_tuple(this->index_to_backend.size(), host.host, host.port,
-            host.name)).first->second;
-    this->name_to_backend.emplace(b.name, &b);
+    Backend* b = new Backend(this->backends.size(), host.host,
+        host.port, host.name);
+    this->backends.emplace_back(b);
+    this->name_to_backend.emplace(b->name, b);
   }
 }
 
@@ -320,10 +319,9 @@ void Proxy::print(FILE* stream, int indent_level) const {
   }
 
   fprintf(stream, "], backends=[\n");
-  for (const auto& backend_it : this->index_to_backend) {
+  for (const auto& backend : this->backends) {
     print_indent(stream, indent_level + 1);
-    fprintf(stream, "%" PRId64 " = ", backend_it.first);
-    backend_it.second.print(stream, indent_level + 1);
+    backend->print(stream, indent_level + 1);
     fprintf(stream, ",\n");
   }
 
@@ -367,7 +365,7 @@ int64_t Proxy::backend_index_for_argument(const string& arg) const {
     char* endptr;
     int64_t backend_index = strtoll(arg.data(), &endptr, 0);
     if ((endptr == arg.data()) ||
-        (backend_index < 0 || backend_index >= this->index_to_backend.size())) {
+        (backend_index < 0 || backend_index >= this->backends.size())) {
       return -1;
     }
     return backend_index;
@@ -375,7 +373,7 @@ int64_t Proxy::backend_index_for_argument(const string& arg) const {
 }
 
 Backend& Proxy::backend_for_index(size_t index) {
-  return this->index_to_backend.at(index);
+  return *this->backends[index];
 }
 
 Backend& Proxy::backend_for_key(const string& s) {
@@ -783,7 +781,7 @@ void Proxy::send_ready_response(ResponseLink* l) {
       auto cursor = l->response_to_forward->fields[0];
       if (cursor->data == "0") {
         int64_t next_backend_id = l->scan_backend_index + 1;
-        if (next_backend_id < this->index_to_backend.size()) {
+        if (next_backend_id < this->backends.size()) {
           // the next cursor should be 0, but on the next backend
           uint8_t index_bits = this->scan_cursor_backend_index_bits();
           l->response_to_forward->fields[0]->data = string_printf(
@@ -1309,8 +1307,9 @@ void Proxy::command_all_collect_status_responses(Client* c,
 void Proxy::command_forward_all(Client* c, shared_ptr<DataCommand> cmd,
     CollectionType type) {
   auto l = this->create_link(type, c);
-  for (auto& backend_it : this->index_to_backend) {
-    BackendConnection& conn = this->backend_conn_for_index(backend_it.first);
+  for (size_t backend_index = 0; backend_index < this->backends.size();
+       backend_index++) {
+    BackendConnection& conn = this->backend_conn_for_index(backend_index);
     this->send_command_and_link(&conn, l, cmd);
   }
 }
@@ -1379,7 +1378,7 @@ void Proxy::command_forward_by_keys_2_all(Client* c,
 
 void Proxy::command_forward_random(Client* c, shared_ptr<DataCommand> cmd) {
   BackendConnection& conn = this->backend_conn_for_index(
-      rand() % this->index_to_backend.size());
+      rand() % this->backends.size());
   ResponseLink* l = this->create_link(CollectionType::ForwardResponse, c);
   this->send_command_and_link(&conn, l, cmd);
 }
@@ -1406,7 +1405,7 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
   }
 
   // compute the backend for each key, creating command objects as needed
-  vector<ReferenceCommand> backend_commands(this->index_to_backend.size());
+  vector<ReferenceCommand> backend_commands(this->backends.size());
   for (size_t y = 0; y < num_keys; y++) {
     size_t base_arg_index = (y * args_per_key) + start_arg_index;
     int64_t backend_index = this->backend_index_for_key(
@@ -1435,7 +1434,7 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
   }
 
   // send the commands off
-  for (size_t backend_index = 0; backend_index < this->index_to_backend.size();
+  for (size_t backend_index = 0; backend_index < this->backends.size();
        backend_index++) {
     const auto& backend_cmd = backend_commands[backend_index];
     if (backend_cmd.args.empty()) {
@@ -1542,10 +1541,9 @@ void Proxy::command_BACKENDNUM(Client* c, shared_ptr<DataCommand> cmd) {
 }
 
 void Proxy::command_BACKENDS(Client* c, shared_ptr<DataCommand> cmd) {
-  Response r(Response::Type::Multi, this->index_to_backend.size());
-  for (const auto& backend_it : this->index_to_backend) {
-    r.fields.emplace_back(new Response(Response::Type::Data,
-        backend_it.second.debug_name));
+  Response r(Response::Type::Multi, this->backends.size());
+  for (const auto& b : this->backends) {
+    r.fields.emplace_back(new Response(Response::Type::Data, b->debug_name));
   }
   this->send_client_response(c, &r);
 }
@@ -1674,7 +1672,7 @@ void Proxy::command_EVAL(Client* c, shared_ptr<DataCommand> cmd) {
   }
 
   if (backend_index == -1) {
-    backend_index = rand() % this->index_to_backend.size();
+    backend_index = rand() % this->backends.size();
   }
 
   BackendConnection& conn = this->backend_conn_for_index(backend_index);
@@ -1701,8 +1699,9 @@ void Proxy::command_FORWARD(Client* c, shared_ptr<DataCommand> cmd) {
   // their responses verbatim
   if (cmd->args[1].empty()) {
     auto l = this->create_link(CollectionType::CollectResponses, c);
-    for (auto& backend_it : this->index_to_backend) {
-      BackendConnection& conn = this->backend_conn_for_index(backend_it.first);
+    for (size_t backend_index = 0; backend_index < this->backends.size();
+         backend_index++) {
+      BackendConnection& conn = this->backend_conn_for_index(backend_index);
       this->send_command_and_link(&conn, l, &backend_cmd);
     }
 
@@ -1804,7 +1803,7 @@ hash_end_delimiter:%s\n\
         this->stats->num_responses_sent.load(),
         this->stats->num_connections_received.load(),
         this->stats->num_clients.load(), this->bev_to_client.size(),
-        this->index_to_backend.size(), this->stats->start_time, uptime,
+        this->backends.size(), this->stats->start_time, uptime,
         getpid_cached(), this->proxy_index, hash_begin_delimiter_str,
         hash_end_delimiter_str);
     this->send_client_response(c, &r);
@@ -1974,12 +1973,12 @@ void Proxy::command_ROLE(Client* c, shared_ptr<DataCommand> cmd) {
   Response r(Response::Type::Multi, 2);
   r.fields.emplace_back(role_response);
   r.fields.emplace_back(new Response(Response::Type::Multi,
-      this->index_to_backend.size()));
+      this->backends.size()));
 
   auto& backends_r = *r.fields[1];
-  for (const auto& backend_it : this->index_to_backend) {
+  for (const auto& b : this->backends) {
     backends_r.fields.emplace_back(new Response(Response::Type::Data,
-        backend_it.second.debug_name));
+        b->debug_name));
   }
 
   this->send_client_response(c, &r);
@@ -2015,7 +2014,7 @@ void Proxy::command_SCAN(Client* c, shared_ptr<DataCommand> cmd) {
   uint8_t index_bits = this->scan_cursor_backend_index_bits();
   int64_t backend_index = (cursor >> (64 - index_bits)) &
       ((1 << index_bits) - 1);
-  if ((backend_index < 0) || (backend_index >= this->index_to_backend.size())) {
+  if ((backend_index < 0) || (backend_index >= this->backends.size())) {
     this->send_client_string_response(c,
         "PROXYERROR cursor refers to a nonexistent backend",
         Response::Type::Error);
@@ -2107,7 +2106,7 @@ void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
 
 
 uint8_t Proxy::scan_cursor_backend_index_bits() const {
-  size_t backend_count = this->index_to_backend.size();
+  size_t backend_count = this->backends.size();
 
   // if the backend count is a power of two, we don't need an extra bit
   if ((backend_count & (backend_count - 1)) == 0) {
