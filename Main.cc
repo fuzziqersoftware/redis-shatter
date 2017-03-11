@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <phosg/Filesystem.hh>
+#include <phosg/JSON.hh>
 #include <phosg/Network.hh>
 #include <phosg/Strings.hh>
 #include <string>
@@ -22,6 +23,11 @@
 using namespace std;
 
 
+// TODO: set cpu affinity for worker threads
+//   pthread_t my_thread_native = my_thread.native_handle();
+//   then call pthread_attr_setaffinity_np
+
+
 bool should_exit = false;
 
 void sigint_handler(int signum) {
@@ -30,116 +36,150 @@ void sigint_handler(int signum) {
 
 
 struct Options {
-  size_t num_threads;
+  struct ProxyOptions {
+    size_t num_threads;
 
-  string listen_addr;
-  int port;
-  int listen_fd;
+    string listen_addr;
+    int port;
+    int listen_fd;
 
-  vector<string> backend_netlocs;
-  unordered_set<string> commands_to_disable;
+    vector<string> backend_netlocs;
+    unordered_set<string> commands_to_disable;
 
-  int hash_begin_delimiter;
-  int hash_end_delimiter;
+    int hash_begin_delimiter;
+    int hash_end_delimiter;
 
-  Options() : num_threads(1), listen_addr(""), port(6379), listen_fd(-1),
-      hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
+    ProxyOptions() : num_threads(1), listen_addr(""), port(6379), listen_fd(-1),
+        backend_netlocs(), commands_to_disable(), hash_begin_delimiter(-1),
+        hash_end_delimiter(-1) { }
+
+    void print(FILE* stream, const char* name) const {
+      fprintf(stream, "[%s] %zu worker thread(s)\n", name, this->num_threads);
+      if (this->listen_fd >= 0) {
+        fprintf(stream, "[%s] accept connections on fd %d\n", name,
+            this->listen_fd);
+      } else if (!this->listen_addr.empty()) {
+        fprintf(stream, "[%s] listen on %s:%d\n", name,
+            this->listen_addr.c_str(), this->port);
+      } else {
+        fprintf(stream, "[%s] listen on port %d on all interfaces\n", name,
+            this->port);
+      }
+
+      for (const auto& backend_netloc : this->backend_netlocs) {
+        fprintf(stream, "[%s] register backend %s\n", name,
+            backend_netloc.c_str());
+      }
+
+      for (const auto& command : this->commands_to_disable) {
+        fprintf(stream, "[%s] disable command %s\n", name, command.c_str());
+      }
+
+      if (this->hash_begin_delimiter) {
+        fprintf(stream, "[%s] hash begin delimiter is %c\n", name,
+            this->hash_begin_delimiter);
+      }
+      if (this->hash_end_delimiter) {
+        fprintf(stream, "[%s] hash end delimiter is %c\n", name,
+            this->hash_end_delimiter);
+      }
+    }
+
+    void validate() const {
+      if (this->backend_netlocs.empty()) {
+        throw invalid_argument("no backends specified");
+      }
+    }
+  };
+
+  unordered_map<string, ProxyOptions> name_to_proxy_options;
+
+  Options() = delete;
+  Options(Options&&) = default;
+  Options(const Options&) = default;
+  Options(const char* filename) {
+    string json;
+    if (!strcmp(filename, "-")) {
+      scoped_fd fd(0);
+      json = read_all(fd);
+    } else {
+      scoped_fd fd(filename, O_RDONLY);
+      json = read_all(fd);
+    }
+    shared_ptr<JSONObject> config = JSONObject::parse(json);
+
+    if (!config->is_dict()) {
+      throw invalid_argument("configuration is not a dictionary");
+    }
+
+    for (const auto& proxy_config_it : config->as_dict()) {
+      const string& proxy_name = proxy_config_it.first;
+      const auto& proxy_config = proxy_config_it.second->as_dict();
+
+      ProxyOptions& options = this->name_to_proxy_options.emplace(
+          piecewise_construct, forward_as_tuple(proxy_name), forward_as_tuple())
+          .first->second;
+
+      try {
+        options.num_threads = proxy_config.at("num_threads")->as_int();
+        if (options.num_threads == 0) {
+          options.num_threads = thread::hardware_concurrency();
+        }
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        options.listen_addr = proxy_config.at("interface")->as_string();
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        options.port = proxy_config.at("port")->as_int();
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        const auto& s = proxy_config.at("hash_field_begin")->as_string();
+        if (s.size() != 1) {
+          throw invalid_argument("hash_field_begin is not a 1-char string");
+        }
+        options.hash_begin_delimiter = s[0];
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        const auto& s = proxy_config.at("hash_field_end")->as_string();
+        if (s.size() != 1) {
+          throw invalid_argument("hash_field_end is not a 1-char string");
+        }
+        options.hash_end_delimiter = s[0];
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        for (const auto& command : proxy_config.at("disable_commands")->as_list()) {
+          options.commands_to_disable.emplace(command->as_string());
+        }
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        for (const auto& backend_it : proxy_config.at("backends")->as_dict()) {
+          const auto& backend_name = backend_it.first;
+          const auto& backend_netloc = backend_it.second->as_string();
+
+          options.backend_netlocs.emplace_back(string_printf("%s@%s",
+              backend_netloc.c_str(), backend_name.c_str()));
+        }
+      } catch (const JSONObject::key_error& e) { }
+    }
+  }
 
   void print(FILE* stream) const {
-    fprintf(stream, "proxy configuration:\n");
-    fprintf(stream, "  worker threads       : %zu\n", this->num_threads);
-
-    if (!this->listen_addr.empty()) {
-      fprintf(stream, "  service address      : %s\n", this->listen_addr.c_str());
-    } else {
-      fprintf(stream, "  service address      : NULL\n");
-    }
-    fprintf(stream, "  service port         : %d\n", this->port);
-    fprintf(stream, "  inherited socket     : %d\n", this->listen_fd);
-
-    for (const auto& backend_netloc : this->backend_netlocs) {
-      fprintf(stream, "  backend              : %s\n", backend_netloc.c_str());
-    }
-
-    if (this->hash_begin_delimiter) {
-      fprintf(stream, "  hash begin delimiter : %c\n", this->hash_begin_delimiter);
-    } else {
-      fprintf(stream, "  hash begin delimiter : NULL\n");
-    }
-    if (this->hash_end_delimiter) {
-      fprintf(stream, "  hash end delimiter   : %c\n", this->hash_end_delimiter);
-    } else {
-      fprintf(stream, "  hash end delimiter   : NULL\n");
+    fprintf(stream, "%zu proxy instance(s) defined\n",
+        this->name_to_proxy_options.size());
+    for (const auto& it : this->name_to_proxy_options) {
+      it.second.print(stream, it.first.c_str());
     }
   }
 
-  void execute_option(const char* option) {
-    if (!strncmp(option, "--port=", 7)) {
-      this->port = atoi(&option[7]);
-
-    } else if (!strncmp(option, "--interface=", 12)) {
-      this->listen_addr = &option[12];
-
-    } else if (!strncmp(option, "--listen-fd=", 12)) {
-      this->listen_fd = atoi(&option[12]);
-
-    } else if (!strncmp(option, "--parallel=", 11)) {
-      this->num_threads = atoi(&option[11]);
-
-    } else if (!strncmp(option, "--config-file=", 14)) {
-      this->execute_options_from_file(&option[14]);
-
-    } else if (!strncmp(option, "--hash-field-begin=", 19)) {
-      this->hash_begin_delimiter = option[19];
-
-    } else if (!strncmp(option, "--hash-field-end=", 17)) {
-      this->hash_end_delimiter = option[17];
-
-    } else if (!strncmp(option, "--backend=", 10)) {
-      this->backend_netlocs.emplace_back(&option[10]);
-
-    } else if (!strncmp(option, "--disable-command=", 18)) {
-      this->commands_to_disable.emplace(&option[18]);
-
-    } else {
-      throw invalid_argument(string_printf("unrecognized option: \"%s\"\n", option));
-    }
-  }
-
-  void execute_options_from_file(const char* filename) {
-    auto f = fopen_unique(filename, "rt");
-
-    // this should be enough for any reasonable options
-    const int line_buffer_size = 512;
-    char line_buffer[line_buffer_size];
-    while (fgets(line_buffer, line_buffer_size, f.get())) {
-      // get rid of comments first
-      int x;
-      for (x = 0; line_buffer[x]; x++) {
-        if (line_buffer[x] == '#') {
-          break;
-        }
-      }
-      line_buffer[x] = 0;
-
-      // get rid of trailing whitespace
-      for (x--; x >= 0 && (line_buffer[x] == ' ' || line_buffer[x] == '\t' || line_buffer[x] == '\r' || line_buffer[x] == '\n'); x--);
-      if (x >= 0) {
-        line_buffer[x + 1] = 0;
-        this->execute_option(line_buffer);
-      }
-    }
-  }
-
-  void execute_options_from_command_line(int argc, char** argv) {
-    if (argc == 1) {
-      log(INFO, "no command-line options given; using redis-shatter.conf");
-      this->execute_options_from_file("redis-shatter.conf");
-    } else {
-      int x;
-      for (x = 1; x < argc; x++) {
-        this->execute_option(argv[x]);
-      }
+  void validate() const {
+    for (const auto& it : this->name_to_proxy_options) {
+      it.second.validate();
     }
   }
 };
@@ -151,78 +191,82 @@ int main(int argc, char** argv) {
   log(INFO, "> fuzziqer software redis-shatter");
 
   // parse command-line args
-  Options opt;
-  opt.execute_options_from_command_line(argc, argv);
+  if (argc > 2) {
+    log(ERROR, "usage: %s [config-filename]", argv[0]);
+    return 1;
+  }
+  const char* config_filename = (argc == 2) ? argv[1] : "redis-shatter.conf.json";
+  Options opt(config_filename);
   opt.print(stderr);
-
-  // sanity-check options
-  if (opt.backend_netlocs.empty()) {
-    log(ERROR, "no backends specified");
-    return 2;
-  }
-  if (opt.num_threads < 1) {
-    log(ERROR, "at least 1 thread must be running");
-    return 2;
-  }
+  opt.validate();
 
   srand(getpid() ^ time(NULL));
   signal(SIGPIPE, SIG_IGN);
   signal(SIGINT, sigint_handler);
 
-  // if there's no listening socket from a parent process, open a new one
-  if (opt.listen_fd == -1) {
-    opt.listen_fd = listen(opt.listen_addr, opt.port, SOMAXCONN);
-    if (!opt.listen_addr.empty()) {
-      log(INFO, "opened server socket %d on %s:%d", opt.listen_fd,
-          opt.listen_addr.c_str(), opt.port);
+  vector<thread> threads;
+  vector<unique_ptr<Proxy>> proxies;
+
+  // start all the proxies
+  for (auto& proxy_options_it : opt.name_to_proxy_options) {
+    const char* proxy_name = proxy_options_it.first.c_str();
+    auto& proxy_options = proxy_options_it.second;
+
+    // if there's no listening socket from a parent process, open a new one
+    if (proxy_options.listen_fd == -1) {
+      proxy_options.listen_fd = listen(proxy_options.listen_addr,
+          proxy_options.port, SOMAXCONN);
+      if (!proxy_options.listen_addr.empty()) {
+        log(INFO, "[%s] opened server socket %d on %s:%d", proxy_name,
+            proxy_options.listen_fd, proxy_options.listen_addr.c_str(),
+            proxy_options.port);
+      } else {
+        log(INFO, "[%s] opened server socket %d on port %d", proxy_name,
+            proxy_options.listen_fd, proxy_options.port);
+      }
+
     } else {
-      log(INFO, "opened server socket %d on port %d", opt.listen_fd, opt.port);
+      fprintf(stderr, "[%s] using server socket %d from parent process\n",
+          proxy_name, proxy_options.listen_fd);
     }
 
-  } else {
-    fprintf(stderr, "note: inherited server socket %d from parent process\n",
-        opt.listen_fd);
-  }
+    evutil_make_socket_nonblocking(proxy_options.listen_fd);
 
-  evutil_make_socket_nonblocking(opt.listen_fd);
+    // if there's only one thread, just have the main thread do the work
+    auto hosts = ConsistentHashRing::Host::parse_netloc_list(
+        proxy_options.backend_netlocs, 6379);
+    shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
 
-  // if there's only one thread, just have the main thread do the work
-  auto hosts = ConsistentHashRing::Host::parse_netloc_list(opt.backend_netlocs,
-      6379);
-  shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
-  if (opt.num_threads == 1) {
-    Proxy p(opt.listen_fd, hosts, opt.hash_begin_delimiter,
-        opt.hash_end_delimiter, stats, 0);
-    fprintf(stderr, "ready for connections\n");
-    p.serve();
+    fprintf(stderr, "[%s] starting %zu proxy instances\n", proxy_name,
+        proxy_options.num_threads);
+    while (threads.size() < proxy_options.num_threads) {
+      proxies.emplace_back(new Proxy(proxy_options.listen_fd, hosts,
+          proxy_options.hash_begin_delimiter, proxy_options.hash_end_delimiter,
+          stats, proxies.size()));
+      for (const auto& command : proxy_options.commands_to_disable) {
+        proxies.back()->disable_command(command);
+      }
 
-  } else {
-    fprintf(stderr, "starting %zu proxy instances\n", opt.num_threads);
-    vector<thread> threads;
-    vector<unique_ptr<Proxy>> proxies;
-    while (threads.size() < opt.num_threads) {
-      proxies.emplace_back(new Proxy(opt.listen_fd, hosts,
-          opt.hash_begin_delimiter, opt.hash_end_delimiter, stats,
-          proxies.size()));
+
       threads.emplace_back(&Proxy::serve, proxies.back().get());
     }
+  }
 
-    fprintf(stderr, "ready for connections\n");
-    sigset_t sigset;
-    sigemptyset(&sigset);
-    while (!should_exit) {
-      sigsuspend(&sigset);
-    }
+  fprintf(stderr, "ready for connections\n");
+  sigset_t sigset;
+  sigemptyset(&sigset);
+  while (!should_exit) {
+    sigsuspend(&sigset);
+  }
 
-    fprintf(stderr, "stopping proxy instances\n");
-    for (auto& p : proxies) {
-      p->stop();
-    }
+  fprintf(stderr, "stopping proxy instances\n");
+  for (auto& p : proxies) {
+    p->stop();
+  }
 
-    fprintf(stderr, "waiting for proxy instances to terminate\n");
-    for (auto& t : threads) {
-      t.join();
-    }
+  fprintf(stderr, "waiting for proxy instances to terminate\n");
+  for (auto& t : threads) {
+    t.join();
   }
 
   return 0;

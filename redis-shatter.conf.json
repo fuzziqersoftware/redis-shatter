@@ -1,0 +1,73 @@
+{
+  // Example configuration file for redis-shatter.
+  // This is standard JSON, but (obviously) supports comments.
+
+  // The configuration is a dictionary of proxy names to proxy instances. One
+  // redis-shatter process can support many proxy instances, each of which can
+  // be served by multiple threads.
+
+  "default": {
+    // Number of threads to run for this proxy instance. Must be at least 1.
+    // Incoming connections are pseudorandomly assigned to one of the instances.
+    "num_threads": 4,
+
+    // Port and interface on which to listen. If omitted, the defaults are to
+    // listen on all interfaces on port 6379.
+    "interface": "127.0.0.1",
+    "port": 6379,
+
+    // List of backends. Order doesn't matter here. Keys are distributed over
+    // these backends using a ketama continuum with the fnv1a64 hash function.
+    // Backends have names that are independent of their network location; this
+    // is used to relocate backends while keeping the same key distribution.
+    "backends": {
+      "shard1": "localhost:6381",
+      "shard2": "localhost:6382",
+      "shard3": "localhost:6383",
+      "shard4": "localhost:6384",
+      "shard5": "localhost:6385",
+      "shard6": "localhost:6386",
+      "shard7": "localhost:6387",
+      "shard8": "localhost:6388",
+    },
+
+    // You can optionally disable some commands if you don't want redis-shatter
+    // to forward them to backends. For example, here we disable a few dangerous
+    // commands.
+    "disable_commands": ["FLUSHDB", "FLUSHALL", "KEYS"],
+
+    // Hash field delimiters. These can be used to make sure keys hash to the
+    // same backend.
+    //
+    // How it works:
+    // - If a key contains both delimiters, then only the portion of the key
+    //   between the delimiters is hashed to determine which server to send the
+    //   key to.
+    // - If a key contains only the begin delimiter, then the portion of the key
+    //   after the first occurrence of the begin delimiter is used.
+    // - If a key contains only the end delimiter, then the portion of the key
+    //   before the last occurrence of the end delimiter is used.
+    // - If the delimiters are the same and a key contains only one delimiter,
+    //   then it is treated as an end delimiter. (What happens is the same as
+    //   case 3.)
+    // - If the end delimiter comes before the begin delimiter, then only
+    //   the end delimiter is used. (What happens is the same as case 3.)
+    //
+    // Example: hash_field_begin="{", hash_field_end="}"
+    //   xy{z}, xy{z, z, x{z}y, z}xy, z}x{y all hash to the same server
+    //
+    // Example: hash_field_begin=":", hash_field_end=":"
+    //   xy:z:, z, z:xy all hash to the same server
+    //   xy:z, xy hash to the same server, which may not be the same as above
+    //
+    // Example: hash_field_begin missing, hash_field_end=":"
+    //   xy:z::, xy, xy: all hash to the same server
+    //   xyz, xyz:w hash to the same server, which may not be the same as above
+    //
+    // Example: hash_field_begin=":", hash_field_end missing
+    //   xy:z, z, x:y:z all hash to the same server
+    //   xyz, w:xyz hash to the same server, which may not be the same as above
+    "hash_field_begin": "{",
+    "hash_field_end": "}",
+  },
+}
