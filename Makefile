@@ -1,7 +1,7 @@
 CXX=g++
 OBJECTS=Protocol.o Proxy.o Main.o
-CXXFLAGS=-g -Wall -Werror -std=c++14
-LDFLAGS=-levent -lphosg -g -std=c++14
+CXXFLAGS=-g -Wall -Werror -std=c++14 -I/opt/local/include
+LDFLAGS=-levent -lphosg -g -std=c++14 -L/opt/local/lib
 EXECUTABLE=redis-shatter
 
 TESTS=ProtocolTest FunctionalTest
