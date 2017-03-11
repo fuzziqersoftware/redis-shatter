@@ -371,7 +371,8 @@ void Response::write(struct evbuffer* buf) const {
   switch (this->type) {
     case Type::Status:
     case Type::Error:
-      this->write_string(buf, this->data.data(), (char)this->type);
+      this->write_string(buf, this->data.data(), this->data.size(),
+          (char)this->type);
       break;
 
     case Type::Integer:
@@ -422,12 +423,12 @@ void Response::write_string(struct evbuffer* buf, const void* string,
     return;
   }
   if (sentinel == Response::Type::Data) {
-    evbuffer_add_printf(buf, "$%zu\r\n%.*s\r\n", size, (int)size, string);
+    evbuffer_add_printf(buf, "$%zu\r\n", size);
   } else {
     evbuffer_add(buf, &sentinel, 1);
-    evbuffer_add(buf, string, size);
-    evbuffer_add(buf, "\r\n", 2);
   }
+  evbuffer_add(buf, string, size);
+  evbuffer_add(buf, "\r\n", 2);
 }
 
 void Response::write_int(struct evbuffer* buf, int64_t value,

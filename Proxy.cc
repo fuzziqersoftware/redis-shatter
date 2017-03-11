@@ -405,6 +405,7 @@ BackendConnection& Proxy::backend_conn_for_index(size_t index) {
       bufferevent_free);
   bufferevent_setcb(bev.get(), Proxy::dispatch_on_backend_input, NULL,
       Proxy::dispatch_on_backend_error, this);
+  evbuffer_defer_callbacks(bufferevent_get_output(bev.get()), this->base.get());
 
   // connect to the backend (nonblocking)
   auto s = make_sockaddr_storage(b.host, b.port);
@@ -1295,6 +1296,7 @@ void Proxy::on_client_accept(struct evconnlistener *listener,
       BEV_OPT_CLOSE_ON_FREE);
   unique_ptr<struct bufferevent, void(*)(struct bufferevent*)> bev(
       raw_bev, bufferevent_free);
+  evbuffer_defer_callbacks(bufferevent_get_output(bev.get()), this->base.get());
 
   // create a Client for this connection
   this->bev_to_client.emplace(piecewise_construct,
