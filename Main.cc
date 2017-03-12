@@ -1,4 +1,8 @@
+#define _STDC_FORMAT_MACROS
 #include <errno.h>
+#include <inttypes.h>
+#include <pthread.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +12,11 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifdef __APPLE__
+#include <mach/thread_policy.h>
+#include <mach/thread_act.h>
+#endif
 
 #include <phosg/Filesystem.hh>
 #include <phosg/JSON.hh>
@@ -23,9 +32,21 @@
 using namespace std;
 
 
-// TODO: set cpu affinity for worker threads
-//   pthread_t my_thread_native = my_thread.native_handle();
-//   then call pthread_attr_setaffinity_np
+bool set_thread_affinity(pthread_t thread, int64_t cpu_id) {
+#ifdef __APPLE__
+  thread_affinity_policy_data_t pd;
+  pd.affinity_tag = cpu_id + 1;
+  return thread_policy_set(pthread_mach_thread_np(thread),
+      THREAD_AFFINITY_POLICY, (thread_policy_t)&pd,
+      THREAD_AFFINITY_POLICY_COUNT) == 0;
+
+#else // Linux
+  cpu_set_t cpuset;
+  CPU_ZERO(&cpuset);
+  CPU_SET(cpu_id, &cpuset);
+  return pthread_setaffinity_np(thread, sizeof(cpu_set_t), &cpuset) == 0;
+#endif
+}
 
 
 bool should_exit = false;
@@ -38,6 +59,7 @@ void sigint_handler(int signum) {
 struct Options {
   struct ProxyOptions {
     size_t num_threads;
+    int64_t affinity_cpus;
 
     string listen_addr;
     int port;
@@ -49,12 +71,18 @@ struct Options {
     int hash_begin_delimiter;
     int hash_end_delimiter;
 
-    ProxyOptions() : num_threads(1), listen_addr(""), port(6379), listen_fd(-1),
-        backend_netlocs(), commands_to_disable(), hash_begin_delimiter(-1),
-        hash_end_delimiter(-1) { }
+    ProxyOptions() : num_threads(1), affinity_cpus(0), listen_addr(""),
+        port(6379), listen_fd(-1), backend_netlocs(), commands_to_disable(),
+        hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
 
     void print(FILE* stream, const char* name) const {
       fprintf(stream, "[%s] %zu worker thread(s)\n", name, this->num_threads);
+      if (this->affinity_cpus) {
+        fprintf(stream, "[%s] set thread affinity for cores with mask %016" PRIX64 "\n",
+            name, this->affinity_cpus);
+      } else {
+        fprintf(stream, "[%s] don\'t set thread affinity\n", name);
+      }
       if (this->listen_fd >= 0) {
         fprintf(stream, "[%s] accept connections on fd %d\n", name,
             this->listen_fd);
@@ -125,6 +153,10 @@ struct Options {
         if (options.num_threads == 0) {
           options.num_threads = thread::hardware_concurrency();
         }
+      } catch (const JSONObject::key_error& e) { }
+
+      try {
+        options.affinity_cpus = proxy_config.at("affinity_cpus")->as_int();
       } catch (const JSONObject::key_error& e) { }
 
       try {
@@ -208,6 +240,7 @@ int main(int argc, char** argv) {
   vector<unique_ptr<Proxy>> proxies;
 
   // start all the proxies
+  vector<size_t> cpu_to_thread_count(thread::hardware_concurrency());
   for (auto& proxy_options_it : opt.name_to_proxy_options) {
     const char* proxy_name = proxy_options_it.first.c_str();
     auto& proxy_options = proxy_options_it.second;
@@ -232,7 +265,6 @@ int main(int argc, char** argv) {
 
     evutil_make_socket_nonblocking(proxy_options.listen_fd);
 
-    // if there's only one thread, just have the main thread do the work
     auto hosts = ConsistentHashRing::Host::parse_netloc_list(
         proxy_options.backend_netlocs, 6379);
     shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
@@ -247,8 +279,29 @@ int main(int argc, char** argv) {
         proxies.back()->disable_command(command);
       }
 
+      // run the thread on the least-loaded cpu
+      int64_t min_load_cpu = -1;
+      for (int64_t cpu_id = 0; cpu_id < cpu_to_thread_count.size(); cpu_id++) {
+        if ((proxy_options.affinity_cpus & (1 << cpu_id)) &&
+            ((min_load_cpu < 0) ||
+             (cpu_to_thread_count[cpu_id] < cpu_to_thread_count[min_load_cpu]))) {
+          min_load_cpu = cpu_id;
+        }
+      }
 
       threads.emplace_back(&Proxy::serve, proxies.back().get());
+      if (min_load_cpu >= 0) {
+        if (set_thread_affinity(threads.back().native_handle(), min_load_cpu)) {
+          cpu_to_thread_count[min_load_cpu]++;
+          fprintf(stderr, "[%s] created worker thread on core %" PRId64 "\n",
+              proxy_name, min_load_cpu);
+        } else {
+          fprintf(stderr, "[%s] created worker thread, but failed to bind to core %" PRId64 "\n",
+              proxy_name, min_load_cpu);
+        }
+      } else {
+        fprintf(stderr, "[%s] created worker thread\n", proxy_name);
+      }
     }
   }
 

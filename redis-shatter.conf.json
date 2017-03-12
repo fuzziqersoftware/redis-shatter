@@ -11,6 +11,13 @@
     // Incoming connections are pseudorandomly assigned to one of the instances.
     "num_threads": 4,
 
+    // Which CPUs this proxy instance should use.
+    // - If nonzero, each thread will run on exactly one of the CPUs given in
+    //   this mask. Setting this to -1 allows all CPUs to be used, but each
+    //   thread still runs on exactly one CPU.
+    // - If zero, threads will not be assigned to any CPU.
+    "affinity_cpus": -1,
+
     // Port and interface on which to listen. If omitted, the defaults are to
     // listen on all interfaces on port 6379.
     "interface": "127.0.0.1",
