@@ -39,6 +39,7 @@ struct BackendConnection {
   BackendConnection(const BackendConnection&) = delete;
   BackendConnection(BackendConnection&&) = delete;
   BackendConnection& operator=(const BackendConnection&) = delete;
+  BackendConnection& operator=(BackendConnection&&) = delete;
   ~BackendConnection();
 
   struct evbuffer* get_output_buffer();
@@ -65,6 +66,7 @@ struct Backend {
   Backend(const Backend&) = delete;
   Backend(Backend&&) = delete;
   Backend& operator=(const Backend&) = delete;
+  Backend& operator=(Backend&&) = delete;
   ~Backend() = default;
 
   BackendConnection& get_default_connection();
@@ -94,6 +96,7 @@ struct Client {
   Client(const Client&) = delete;
   Client(Client&&) = delete;
   Client& operator=(const Client&) = delete;
+  Client& operator=(Client&&) = delete;
   ~Client();
 
   struct evbuffer* get_output_buffer();
@@ -181,6 +184,7 @@ struct ResponseLink {
   ResponseLink(const ResponseLink&) = delete;
   ResponseLink(ResponseLink&&) = delete;
   ResponseLink& operator=(const ResponseLink&) = delete;
+  ResponseLink& operator=(ResponseLink&&) = delete;
   ~ResponseLink();
 
   bool is_ready() const;
@@ -215,6 +219,7 @@ public:
   Proxy(const Proxy&) = delete;
   Proxy(Proxy&&) = delete;
   Proxy& operator=(const Proxy&) = delete;
+  Proxy& operator=(Proxy&&) = delete;
   ~Proxy() = default;
 
   bool disable_command(const std::string& command_name);
