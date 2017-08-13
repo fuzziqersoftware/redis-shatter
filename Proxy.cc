@@ -263,14 +263,14 @@ Proxy::Stats::Stats() : num_commands_received(0), num_commands_sent(0),
     num_responses_received(0), num_responses_sent(0),
     num_connections_received(0), num_clients(0), start_time(now()) { }
 
-Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
+Proxy::Proxy(int listen_fd, shared_ptr<const ConsistentHashRing> ring,
     int hash_begin_delimiter, int hash_end_delimiter, shared_ptr<Stats> stats,
     size_t proxy_index) : listen_fd(listen_fd),
     base(event_base_new(), event_base_free),
     listener(evconnlistener_new(this->base.get(),
         Proxy::dispatch_on_client_accept, this, LEV_OPT_REUSEABLE, 0,
         this->listen_fd), evconnlistener_free),
-    should_exit(false), ring(hosts), backends(), name_to_backend(),
+    should_exit(false), ring(ring), backends(), name_to_backend(),
     bev_to_backend_conn(), bev_to_client(), proxy_index(proxy_index),
     stats(stats), hash_begin_delimiter(hash_begin_delimiter),
     hash_end_delimiter(hash_end_delimiter), handlers(this->default_handlers) {
@@ -282,7 +282,7 @@ Proxy::Proxy(int listen_fd, const vector<ConsistentHashRing::Host>& hosts,
   evconnlistener_set_error_cb(this->listener.get(), Proxy::dispatch_on_listen_error);
 
   // set up backend structures
-  for (const auto& host : hosts) {
+  for (const auto& host : this->ring->all_hosts()) {
     Backend* b = new Backend(this->backends.size(), host.host,
         host.port, host.name);
     this->backends.emplace_back(b);
@@ -366,7 +366,7 @@ int64_t Proxy::backend_index_for_key(const string& s) const {
     hash_begin_pos = 0;
   }
 
-  return this->ring.host_id_for_key(s.data() + hash_begin_pos,
+  return this->ring->host_id_for_key(s.data() + hash_begin_pos,
       hash_end_pos - hash_begin_pos);
 }
 

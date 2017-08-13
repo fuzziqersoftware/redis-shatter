@@ -213,7 +213,7 @@ public:
     int port;
   };
 
-  Proxy(int listen_fd, const std::vector<ConsistentHashRing::Host>& hosts,
+  Proxy(int listen_fd, std::shared_ptr<const ConsistentHashRing> ring,
       int hash_begin_delimiter = -1, int hash_end_delimiter = -1,
       std::shared_ptr<Stats> stats = NULL, size_t proxy_index = 0);
   Proxy(const Proxy&) = delete;
@@ -237,7 +237,7 @@ private:
   bool should_exit;
 
   // connection indexing and lookup
-  ConsistentHashRing ring;
+  std::shared_ptr<const ConsistentHashRing> ring;
   std::vector<Backend*> backends;
   std::unordered_map<std::string, Backend*> name_to_backend;
   std::unordered_map<struct bufferevent*, BackendConnection*> bev_to_backend_conn;

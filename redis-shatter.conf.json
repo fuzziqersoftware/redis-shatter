@@ -39,9 +39,16 @@
     },
 
     // You can optionally disable some commands if you don't want redis-shatter
-    // to forward them to backends. For example, here we disable a few dangerous
-    // commands.
-    "disable_commands": ["FLUSHDB", "FLUSHALL", "KEYS"],
+    // to forward them to backends. For example, uncomment this line to disable
+    // a few dangerous commands.
+    //"disable_commands": ["FLUSHDB", "FLUSHALL", "KEYS"],
+
+    // Hash precision. This determines how uniform the key distribution is
+    // across the backends. Changing this in a non-empty cluster means that some
+    // keys will be "left behind" on the wrong hosts and inaccessible. This also
+    // affects the proxy's memory usage; the hash ring requires approximately
+    // 2^precision bytes in memory.
+    "hash_precision": 20,
 
     // Hash field delimiters. These can be used to make sure keys hash to the
     // same backend.

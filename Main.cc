@@ -68,12 +68,13 @@ struct Options {
     vector<string> backend_netlocs;
     unordered_set<string> commands_to_disable;
 
+    uint8_t hash_precision;
     int hash_begin_delimiter;
     int hash_end_delimiter;
 
     ProxyOptions() : num_threads(1), affinity_cpus(0), listen_addr(""),
         port(6379), listen_fd(-1), backend_netlocs(), commands_to_disable(),
-        hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
+        hash_precision(17), hash_begin_delimiter(-1), hash_end_delimiter(-1) { }
 
     void print(FILE* stream, const char* name) const {
       fprintf(stream, "[%s] %zu worker thread(s)\n", name, this->num_threads);
@@ -103,12 +104,12 @@ struct Options {
         fprintf(stream, "[%s] disable command %s\n", name, command.c_str());
       }
 
-      if (this->hash_begin_delimiter) {
-        fprintf(stream, "[%s] hash begin delimiter is %c\n", name,
+      if (this->hash_begin_delimiter >= 0) {
+        fprintf(stream, "[%s] hash begin delimiter is 0x%02X\n", name,
             this->hash_begin_delimiter);
       }
-      if (this->hash_end_delimiter) {
-        fprintf(stream, "[%s] hash end delimiter is %c\n", name,
+      if (this->hash_end_delimiter >= 0) {
+        fprintf(stream, "[%s] hash end delimiter is 0x%02X\n", name,
             this->hash_end_delimiter);
       }
     }
@@ -153,19 +154,23 @@ struct Options {
         if (options.num_threads == 0) {
           options.num_threads = thread::hardware_concurrency();
         }
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         options.affinity_cpus = proxy_config.at("affinity_cpus")->as_int();
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         options.listen_addr = proxy_config.at("interface")->as_string();
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         options.port = proxy_config.at("port")->as_int();
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
+
+      try {
+        options.hash_precision = proxy_config.at("hash_precision")->as_int();
+      } catch (const out_of_range& e) { }
 
       try {
         const auto& s = proxy_config.at("hash_field_begin")->as_string();
@@ -173,7 +178,7 @@ struct Options {
           throw invalid_argument("hash_field_begin is not a 1-char string");
         }
         options.hash_begin_delimiter = s[0];
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         const auto& s = proxy_config.at("hash_field_end")->as_string();
@@ -181,13 +186,13 @@ struct Options {
           throw invalid_argument("hash_field_end is not a 1-char string");
         }
         options.hash_end_delimiter = s[0];
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         for (const auto& command : proxy_config.at("disable_commands")->as_list()) {
           options.commands_to_disable.emplace(command->as_string());
         }
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
 
       try {
         for (const auto& backend_it : proxy_config.at("backends")->as_dict()) {
@@ -197,7 +202,7 @@ struct Options {
           options.backend_netlocs.emplace_back(string_printf("%s@%s",
               backend_netloc.c_str(), backend_name.c_str()));
         }
-      } catch (const JSONObject::key_error& e) { }
+      } catch (const out_of_range& e) { }
     }
   }
 
@@ -265,14 +270,17 @@ int main(int argc, char** argv) {
 
     evutil_make_socket_nonblocking(proxy_options.listen_fd);
 
+    fprintf(stderr, "[%s] setting up configuration\n", proxy_name);
     auto hosts = ConsistentHashRing::Host::parse_netloc_list(
         proxy_options.backend_netlocs, 6379);
+    shared_ptr<ConsistentHashRing> ring(new ConsistentHashRing(hosts,
+        proxy_options.hash_precision));
     shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
 
     fprintf(stderr, "[%s] starting %zu proxy instances\n", proxy_name,
         proxy_options.num_threads);
     while (threads.size() < proxy_options.num_threads) {
-      proxies.emplace_back(new Proxy(proxy_options.listen_fd, hosts,
+      proxies.emplace_back(new Proxy(proxy_options.listen_fd, ring,
           proxy_options.hash_begin_delimiter, proxy_options.hash_end_delimiter,
           stats, proxies.size()));
       for (const auto& command : proxy_options.commands_to_disable) {
