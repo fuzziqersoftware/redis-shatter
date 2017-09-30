@@ -1821,6 +1821,14 @@ void Proxy::command_INFO(Client* c, shared_ptr<DataCommand> cmd) {
     uint64_t uptime = now() - this->stats->start_time;
 
     Response r(Response::Type::Data, "\
+# Server\n\
+redis_version:redis-shatter\n\
+process_id:%d\n\
+start_time_usecs:%" PRIu64 "\n\
+uptime_usecs:%" PRIu64 "\n\
+hash_begin_delimiter:%s\n\
+hash_end_delimiter:%s\n\
+\n\
 # Counters\n\
 num_commands_received:%zu\n\
 num_commands_sent:%zu\n\
@@ -1830,32 +1838,21 @@ num_connections_received:%zu\n\
 num_clients:%zu\n\
 num_clients_this_instance:%zu\n\
 num_backends:%zu\n\
-\n\
-# Timing\n\
-start_time_usecs:%" PRIu64 "\n\
-uptime_usecs:%" PRIu64 "\n\
-\n\
-# Configuration\n\
-process_id:%d\n\
-proxy_index:%zu\n\
-hash_begin_delimiter:%s\n\
-hash_end_delimiter:%s\n\
-", this->stats->num_commands_received.load(),
+", getpid_cached(), this->stats->start_time, uptime, hash_begin_delimiter_str,
+        hash_end_delimiter_str, this->stats->num_commands_received.load(),
         this->stats->num_commands_sent.load(),
         this->stats->num_responses_received.load(),
         this->stats->num_responses_sent.load(),
         this->stats->num_connections_received.load(),
         this->stats->num_clients.load(), this->bev_to_client.size(),
-        this->backends.size(), this->stats->start_time, uptime,
-        getpid_cached(), this->proxy_index, hash_begin_delimiter_str,
-        hash_end_delimiter_str);
+        this->backends.size(), this->proxy_index);
     this->send_client_response(c, &r);
     return;
   }
 
   // INFO BACKEND num - return proxy's info for backend num
   if ((cmd->args.size() == 3) && (cmd->args[1] == "BACKEND")) {
-    int64_t backend_index = this->backend_index_for_argument(cmd->args[1]);
+    int64_t backend_index = this->backend_index_for_argument(cmd->args[2]);
     if (backend_index < 0) {
       this->send_client_string_response(c, "ERR backend does not exist",
           Response::Type::Error);
