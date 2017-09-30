@@ -27,6 +27,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "NutcrackerConsistentHashRing.hh"
 #include "Proxy.hh"
 
 using namespace std;
@@ -273,8 +274,13 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[%s] setting up configuration\n", proxy_name);
     auto hosts = ConsistentHashRing::Host::parse_netloc_list(
         proxy_options.backend_netlocs, 6379);
-    shared_ptr<ConsistentHashRing> ring(new ConsistentHashRing(hosts,
-        proxy_options.hash_precision));
+    shared_ptr<ConsistentHashRing> ring;
+    if (proxy_options.hash_precision) {
+      ring.reset(new ConstantTimeConsistentHashRing(
+          hosts, proxy_options.hash_precision));
+    } else {
+      ring.reset(new NutcrackerConsistentHashRing(hosts));
+    }
     shared_ptr<Proxy::Stats> stats(new Proxy::Stats());
 
     fprintf(stderr, "[%s] starting %zu proxy instances\n", proxy_name,

@@ -20,13 +20,15 @@
 
     // Port and interface on which to listen. If omitted, the defaults are to
     // listen on all interfaces on port 6379.
-    "interface": "127.0.0.1",
+    "interface": "0.0.0.0",
     "port": 6379,
 
     // List of backends. Order doesn't matter here. Keys are distributed over
-    // these backends using a ketama continuum with the fnv1a64 hash function.
-    // Backends have names that are independent of their network location; this
-    // is used to relocate backends while keeping the same key distribution.
+    // these backends using a consistent hash ring with the fnv1a64 hash
+    // function. (The ring's behavior can be changed with the hash_precision
+    // setting below.) Backends have names that are independent of their network
+    // location; this is used to relocate backends while keeping the same key
+    // distribution.
     "backends": {
       "shard1": "localhost:6381",
       "shard2": "localhost:6382",
@@ -39,16 +41,22 @@
     },
 
     // You can optionally disable some commands if you don't want redis-shatter
-    // to forward them to backends. For example, uncomment this line to disable
-    // a few dangerous commands.
-    //"disable_commands": ["FLUSHDB", "FLUSHALL", "KEYS"],
+    // to forward them to backends. By default, we disable a few dangerous
+    // commands.
+    "disable_commands": ["FLUSHDB", "FLUSHALL", "KEYS"],
 
-    // Hash precision. This determines how uniform the key distribution is
-    // across the backends. Changing this in a non-empty cluster means that some
-    // keys will be "left behind" on the wrong hosts and inaccessible. This also
-    // affects the proxy's memory usage; the hash ring requires approximately
-    // 2^precision bytes in memory.
-    "hash_precision": 20,
+    // Hash precision and distribution scheme.
+    // - If set to zero, redis-shatter uses the same log-time distribution
+    //   scheme as twemproxy (nutcracker), so it can be used with the same
+    //   backends as an existing twemproxy/nutcracker instance.
+    // - If set to a positive number, redis-shatter uses a constant-time
+    //   distribution scheme. The precision value determines the number of hash
+    //   bits to use in the ring lookup table. A higher value means more
+    //   uniformity but also more memory usage - the table uses (2^precision)
+    //   bytes in memory.
+    // Changing this value for a non-empty cluster will cause some keys to be
+    // "left behind" on the wrong backend and inaccessible through the proxy.
+    "hash_precision": 17,
 
     // Hash field delimiters. These can be used to make sure keys hash to the
     // same backend.

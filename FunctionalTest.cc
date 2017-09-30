@@ -159,7 +159,7 @@ int main(int argc, char* argv[]) {
 
   {
     printf("-- MSETNX, RENAME\n");
-    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "MSETNX", "x{abc}", "a", "y{abc}", "b", "z{abd}", "b", NULL);
+    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "MSETNX", "x{abc}", "a", "y{abc}", "b", "z{bbc}", "b", NULL);
     test_expect_response("localhost", 6379, ":1\r\n", "MSETNX", "x{abc}", "a", "y{abc}", "b", NULL);
     test_expect_response("localhost", 6379, ":0\r\n", "MSETNX", "x{abc}", "a", "y{abc}", "b", "z{abc}", "c", NULL);
     test_expect_response("localhost", 6379, ":1\r\n", "MSETNX", "z{abd}", "b", NULL);
@@ -167,15 +167,15 @@ int main(int argc, char* argv[]) {
     // make sure the keys are on the same backend
     auto backend_x_resp = test_expect_response("localhost", 6379, NULL, "BACKENDNUM", "x{abc}", NULL);
     auto backend_y_resp = test_expect_response("localhost", 6379, NULL, "BACKENDNUM", "y{abc}", NULL);
-    auto backend_z_resp = test_expect_response("localhost", 6379, NULL, "BACKENDNUM", "z{abd}", NULL);
+    auto backend_z_resp = test_expect_response("localhost", 6379, NULL, "BACKENDNUM", "z{bbc}", NULL);
     expect_eq(*backend_x_resp, *backend_y_resp);
     expect_ne(*backend_x_resp, *backend_z_resp);
 
-    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "RENAME", "x{abc}", "x{abd}", NULL);
+    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "RENAME", "x{abc}", "x{bbc}", NULL);
     test_expect_response("localhost", 6379, "+OK\r\n", "RENAME", "x{abc}", "y{abc}", NULL);
     test_expect_response("localhost", 6379, "+OK\r\n", "RENAME", "y{abc}", "zxcvbnm{abc}", NULL);
 
-    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "RENAME", "z{abd}", "z{abc}", NULL);
+    test_expect_response("localhost", 6379, "-PROXYERROR keys are on different backends\r\n", "RENAME", "z{bbc}", "z{abc}", NULL);
     test_expect_response("localhost", 6379, "+OK\r\n", "RENAME", "z{abd}", "y{abd}", NULL);
     test_expect_response("localhost", 6379, "+OK\r\n", "RENAME", "y{abd}", "zxcvbnm{abd}", NULL);
   }
