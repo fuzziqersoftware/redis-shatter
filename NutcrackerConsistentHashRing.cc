@@ -1,6 +1,7 @@
 #include "NutcrackerConsistentHashRing.hh"
 
 #include <inttypes.h>
+#include <math.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,8 +72,7 @@ uint64_t NutcrackerConsistentHashRing::host_id_for_key(const void* key,
     int64_t size) const {
   // TODO: use std::lower_bound here instead of manual binary search
 
-  uint64_t hash = fnv1a64(key, size);
-  uint32_t hash32 = hash;
+  uint32_t hash32 = fnv1a64(key, size);
 
   const Point* left = this->points.data();
   const Point* right = left + this->points.size();
@@ -86,14 +86,8 @@ uint64_t NutcrackerConsistentHashRing::host_id_for_key(const void* key,
     }
   }
 
-  uint64_t ret;
   if (right == this->points.data() + this->points.size()) {
-    ret = this->points[0].index;
+    return this->points[0].index;
   }
-  ret = right->index;
-
-  print_data(stderr, key, size);
-  fprintf(stderr, "hash = %016" PRIX64 ", host_id = %" PRIu64 "\n", hash, ret);
-
-  return ret;
+  return right->index;
 }

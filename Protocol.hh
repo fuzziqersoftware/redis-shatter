@@ -91,10 +91,10 @@ struct CommandParser {
   };
   State state;
 
-  size_t num_command_args;
+  int64_t num_command_args;
   std::shared_ptr<DataCommand> command_in_progress;
-  ssize_t arguments_remaining;
-  size_t data_bytes_remaining;
+  int64_t arguments_remaining;
+  int64_t data_bytes_remaining;
 
   CommandParser();
   ~CommandParser() = default;

@@ -295,7 +295,7 @@ int main(int argc, char** argv) {
 
       // run the thread on the least-loaded cpu
       int64_t min_load_cpu = -1;
-      for (int64_t cpu_id = 0; cpu_id < cpu_to_thread_count.size(); cpu_id++) {
+      for (int64_t cpu_id = 0; cpu_id < static_cast<ssize_t>(cpu_to_thread_count.size()); cpu_id++) {
         if ((proxy_options.affinity_cpus & (1 << cpu_id)) &&
             ((min_load_cpu < 0) ||
              (cpu_to_thread_count[cpu_id] < cpu_to_thread_count[min_load_cpu]))) {

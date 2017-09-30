@@ -511,7 +511,7 @@ shared_ptr<DataCommand> CommandParser::resume(struct evbuffer* buf) {
       case State::ReadingArgumentData: {
         // copy data into the last argument
         string& arg = this->command_in_progress->args.back();
-        size_t bytes_available = evbuffer_get_length(buf);
+        ssize_t bytes_available = evbuffer_get_length(buf);
         if (bytes_available == 0) {
           return NULL;
         }
@@ -650,7 +650,7 @@ shared_ptr<Response> ResponseParser::resume(struct evbuffer* buf) {
 
       case State::ReadingData: {
         // copy data into the data field
-        size_t bytes_available = evbuffer_get_length(buf);
+        ssize_t bytes_available = evbuffer_get_length(buf);
         if (bytes_available == 0) {
           return NULL;
         }
@@ -767,7 +767,7 @@ bool ResponseParser::forward(struct evbuffer* buf,
       }
 
       case State::ReadingData: {
-        size_t bytes_available = evbuffer_get_length(buf);
+        ssize_t bytes_available = evbuffer_get_length(buf);
         if (bytes_available == 0) {
           return false;
         }

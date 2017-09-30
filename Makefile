@@ -1,7 +1,7 @@
 CXX=g++
 OBJECTS=NutcrackerConsistentHashRing.o Protocol.o Proxy.o Main.o
 CXXFLAGS=-g -Wall -Werror -std=c++14 -I/opt/local/include
-LDFLAGS=-levent -lphosg -g -std=c++14 -L/opt/local/lib
+LDFLAGS=-levent -lphosg -lpthread -g -std=c++14 -L/opt/local/lib
 EXECUTABLE=redis-shatter
 
 TESTS=ProtocolTest FunctionalTest

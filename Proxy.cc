@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <phosg/Network.hh>
 #include <phosg/Process.hh>
@@ -376,8 +377,9 @@ int64_t Proxy::backend_index_for_argument(const string& arg) const {
   } catch (const std::out_of_range& e) {
     char* endptr;
     int64_t backend_index = strtoll(arg.data(), &endptr, 0);
+    int64_t backend_count = this->backends.size();
     if ((endptr == arg.data()) ||
-        (backend_index < 0 || backend_index >= this->backends.size())) {
+        (backend_index < 0 || backend_index >= backend_count)) {
       return -1;
     }
     return backend_index;
@@ -797,7 +799,7 @@ void Proxy::send_ready_response(ResponseLink* l) {
       auto cursor = l->response_to_forward->fields[0];
       if (cursor->data == "0") {
         int64_t next_backend_id = l->scan_backend_index + 1;
-        if (next_backend_id < this->backends.size()) {
+        if (next_backend_id < static_cast<int64_t>(this->backends.size())) {
           // the next cursor should be 0, but on the next backend
           uint8_t index_bits = this->scan_cursor_backend_index_bits();
           l->response_to_forward->fields[0]->data = string_printf(
@@ -1044,9 +1046,8 @@ void Proxy::handle_client_command(Client* c, shared_ptr<DataCommand> cmd) {
   }
 
   // command names are case-insensitive; convert it to uppercase
-  int x;
   char* arg0_str = const_cast<char*>(cmd->args[0].c_str());
-  for (x = 0; x < cmd->args[0].size(); x++) {
+  for (size_t x = 0; x < cmd->args[0].size(); x++) {
     arg0_str[x] = toupper(arg0_str[x]);
   }
 
@@ -1375,14 +1376,15 @@ void Proxy::command_forward_by_key_index(Client* c, shared_ptr<DataCommand> cmd,
 void Proxy::command_forward_by_keys(Client* c, shared_ptr<DataCommand> cmd,
     ssize_t start_key_index, ssize_t end_key_index) {
 
-  if (cmd->args.size() <= start_key_index) {
+  int64_t num_args = cmd->args.size();
+  if (num_args <= start_key_index) {
     this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
   }
 
-  if ((end_key_index < 0) || (end_key_index > cmd->args.size())) {
-    end_key_index = cmd->args.size();
+  if ((end_key_index < 0) || (end_key_index > num_args)) {
+    end_key_index = num_args;
   }
 
   // check that the keys all hash to the same server
@@ -1681,7 +1683,8 @@ void Proxy::command_ECHO(Client* c, shared_ptr<DataCommand> cmd) {
 
 void Proxy::command_EVAL(Client* c, shared_ptr<DataCommand> cmd) {
 
-  if (cmd->args.size() < 3) {
+  int64_t num_args = cmd->args.size();
+  if (num_args < 3) {
     this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
@@ -1690,7 +1693,7 @@ void Proxy::command_EVAL(Client* c, shared_ptr<DataCommand> cmd) {
   char* endptr;
   int64_t num_keys = strtoll(cmd->args[2].data(), &endptr, 0);
   if ((endptr == cmd->args[2].data()) ||
-      (num_keys < 0 || num_keys > cmd->args.size() - 3)) {
+      (num_keys < 0 || num_keys > num_args - 3)) {
     this->send_client_string_response(c, "ERR key count is invalid",
         Response::Type::Error);
     return;
@@ -1698,7 +1701,7 @@ void Proxy::command_EVAL(Client* c, shared_ptr<DataCommand> cmd) {
 
   // check that the keys all hash to the same server
   int64_t backend_index = -1;
-  for (size_t x = 3; x < num_keys + 3; x++) {
+  for (int64_t x = 3; x < num_keys + 3; x++) {
     int64_t this_key_backend_index = this->backend_index_for_key(cmd->args[x]);
 
     if (backend_index == -1) {
@@ -1948,13 +1951,14 @@ void Proxy::command_MIGRATE(Client* c, shared_ptr<DataCommand> cmd) {
 
 void Proxy::command_MSETNX(Client* c, shared_ptr<DataCommand> cmd) {
 
-  if (cmd->args.size() < 3) {
+  int64_t num_args = cmd->args.size();
+  if (num_args < 3) {
     this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
   }
 
-  if ((cmd->args.size() & 1) != 1) {
+  if ((num_args & 1) != 1) {
     this->send_client_string_response(c, "ERR incorrect argument count",
         Response::Type::Error);
     return;
@@ -1963,7 +1967,7 @@ void Proxy::command_MSETNX(Client* c, shared_ptr<DataCommand> cmd) {
   // check that the keys all hash to the same server
   int64_t backend_index = this->backend_index_for_key(cmd->args[1]);
   int x;
-  for (x = 3; x < cmd->args.size(); x += 2) {
+  for (x = 3; x < num_args; x += 2) {
     if (this->backend_index_for_key(cmd->args[x]) != backend_index) {
       this->send_client_string_response(c,
           "PROXYERROR keys are on different backends", Response::Type::Error);
@@ -2054,7 +2058,8 @@ void Proxy::command_SCAN(Client* c, shared_ptr<DataCommand> cmd) {
   uint8_t index_bits = this->scan_cursor_backend_index_bits();
   int64_t backend_index = (cursor >> (64 - index_bits)) &
       ((1 << index_bits) - 1);
-  if ((backend_index < 0) || (backend_index >= this->backends.size())) {
+  int64_t backend_count = this->backends.size();
+  if ((backend_index < 0) || (backend_index >= backend_count)) {
     this->send_client_string_response(c,
         "PROXYERROR cursor refers to a nonexistent backend",
         Response::Type::Error);
@@ -2113,7 +2118,8 @@ void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
   // this is basically the same as command_forward_by_keys except the number of
   // checked keys is given in arg 2
 
-  if (cmd->args.size() <= 3) {
+  int64_t num_args = cmd->args.size();
+  if (num_args <= 3) {
     this->send_client_string_response(c, "ERR not enough arguments",
         Response::Type::Error);
     return;
@@ -2122,15 +2128,15 @@ void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
   char* endptr;
   int64_t num_keys = strtoll(cmd->args[2].data(), &endptr, 0);
   if ((endptr == cmd->args[2].data()) ||
-      (num_keys < 1 || num_keys > cmd->args.size() - 3)) {
+      (num_keys < 1 || num_keys > num_args - 3)) {
     this->send_client_string_response(c, "ERR key count is invalid",
         Response::Type::Error);
     return;
   }
 
   // check that the keys all hash to the same server
-  int backend_index = this->backend_index_for_key(cmd->args[1]);
-  for (size_t x = 0; x < num_keys; x++) {
+  int64_t backend_index = this->backend_index_for_key(cmd->args[1]);
+  for (int64_t x = 0; x < num_keys; x++) {
     if (this->backend_index_for_key(cmd->args[3 + x]) != backend_index) {
       this->send_client_string_response(c,
           "PROXYERROR keys are on different backends", Response::Type::Error);

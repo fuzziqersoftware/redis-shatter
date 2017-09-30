@@ -3,6 +3,7 @@
 #include <event2/event.h>
 #include <event2/listener.h>
 
+#include <atomic>
 #include <deque>
 #include <memory>
 #include <phosg/ConsistentHashRing.hh>
