@@ -2208,7 +2208,7 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"ECHO",              &Proxy::command_ECHO},
   {"EVAL",              &Proxy::command_EVAL},
   {"EVALSHA",           &Proxy::command_EVAL},
-  {"EXISTS",            &Proxy::command_forward_by_key_1},
+  {"EXISTS",            &Proxy::command_partition_by_keys_1_integer},
   {"EXPIRE",            &Proxy::command_forward_by_key_1},
   {"EXPIREAT",          &Proxy::command_forward_by_key_1},
   {"FLUSHALL",          &Proxy::command_all_collect_status_responses},

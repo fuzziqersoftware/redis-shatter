@@ -78,7 +78,7 @@ ECHO              -- Yes        --
 EVAL              -- Yes        -- *0 *2
 EVALSHA           -- Yes        -- *0 *2 *G
 EXEC              -- No         --
-EXISTS            -- Yes        --
+EXISTS            -- Yes        -- *4
 EXPIRE            -- Yes        --
 EXPIREAT          -- Yes        --
 FLUSHALL          -- Yes        -- *6
