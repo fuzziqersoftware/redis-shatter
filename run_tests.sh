@@ -4,7 +4,7 @@
 RUN_MULTI_PID=$?
 sleep 1
 
-./redis-shatter --config-file=redis-shatter.conf --parallel=1 &
+./redis-shatter redis-shatter-test.conf.json &
 SHATTER_PID=$?
 sleep 1
 
