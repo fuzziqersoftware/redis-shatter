@@ -99,6 +99,8 @@ void DataCommand::write(struct evbuffer* buf) const {
 
 
 
+ReferenceCommand::DataReference::DataReference() : data(NULL), size(0) { }
+
 ReferenceCommand::DataReference::DataReference(const void* data, size_t size) :
     data(data), size(size) { }
 

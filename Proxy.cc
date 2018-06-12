@@ -1426,7 +1426,8 @@ void Proxy::command_forward_random(Client* c, shared_ptr<DataCommand> cmd) {
 }
 
 void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
-    size_t start_arg_index, size_t args_per_key, CollectionType type) {
+    size_t start_arg_index, size_t args_per_key, bool interleaved,
+    CollectionType type) {
 
   if (cmd->args.size() <= start_arg_index) {
     this->send_client_string_response(c, "ERR not enough arguments",
@@ -1448,30 +1449,80 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
 
   // compute the backend for each key, creating command objects as needed
   vector<ReferenceCommand> backend_commands(this->backends.size());
-  for (size_t y = 0; y < num_keys; y++) {
-    size_t base_arg_index = (y * args_per_key) + start_arg_index;
-    int64_t backend_index = this->backend_index_for_key(
-        cmd->args[base_arg_index]);
+  if (interleaved) {
+    for (size_t y = 0; y < num_keys; y++) {
+      size_t base_arg_index = start_arg_index + (y * args_per_key);
+      int64_t backend_index = this->backend_index_for_key(
+          cmd->args[base_arg_index]);
 
-    // the recombination queue tells us in which order we should pull keys from
-    // the returned responses when sending the ready response to the client
-    if (l->type == CollectionType::CollectMultiResponsesByKey) {
-      l->recombination_queue.emplace_back(backend_index);
-    }
+      // the recombination queue tells us in which order we should pull keys
+      // from the responses when sending the ready response to the client
+      if (l->type == CollectionType::CollectMultiResponsesByKey) {
+        l->recombination_queue.emplace_back(backend_index);
+      }
 
-    // create the backend command if needed
-    auto& backend_cmd = backend_commands[backend_index];
-    if (backend_cmd.args.empty()) {
-      for (size_t z = 0; z < start_arg_index; z++) {
-        const string& arg = cmd->args[z];
+      // create the backend command if needed and copy the args before the keys
+      auto& backend_cmd = backend_commands[backend_index];
+      if (backend_cmd.args.empty()) {
+        for (size_t z = 0; z < start_arg_index; z++) {
+          const string& arg = cmd->args[z];
+          backend_cmd.args.emplace_back(arg.data(), arg.size());
+        }
+      }
+
+      // add the key to the backend command
+      for (size_t z = 0; z < args_per_key; z++) {
+        const string& arg = cmd->args[base_arg_index + z];
         backend_cmd.args.emplace_back(arg.data(), arg.size());
       }
     }
 
-    // add the key to the backend command
-    for (size_t z = 0; z < args_per_key; z++) {
-      const string& arg = cmd->args[base_arg_index + z];
-      backend_cmd.args.emplace_back(arg.data(), arg.size());
+  } else { // not interleaved (the annoying case)
+    vector<vector<int64_t>> backend_key_indexes(this->backends.size());
+    for (size_t y = 0; y < num_keys; y++) {
+      size_t arg_index = start_arg_index + y;
+      int64_t backend_index = this->backend_index_for_key(cmd->args[arg_index]);
+
+      // the recombination queue tells us in which order we should pull keys
+      // from the responses when sending the ready response to the client
+      if (l->type == CollectionType::CollectMultiResponsesByKey) {
+        l->recombination_queue.emplace_back(backend_index);
+      }
+
+      backend_key_indexes[backend_index].emplace_back(y);
+    }
+
+    for (int64_t backend_index = 0; backend_index < this->backends.size();
+         backend_index++) {
+      const auto& key_indexes = backend_key_indexes.at(backend_index);
+      if (key_indexes.empty()) {
+        continue;
+      }
+      size_t dest_num_keys = key_indexes.size();
+
+      // create the backend command
+      auto& backend_cmd = backend_commands[backend_index];
+      backend_cmd.args.resize(start_arg_index + dest_num_keys * args_per_key);
+
+      // copy the args before the keys
+      for (size_t z = 0; z < start_arg_index; z++) {
+        const string& arg = cmd->args[z];
+        backend_cmd.args.emplace_back(arg.data(), arg.size());
+      }
+
+      // add the keys to the backend command
+      for (size_t dest_key_index = 0; dest_key_index < dest_num_keys;
+           dest_key_index++) {
+        for (size_t z = 0; z < args_per_key; z++) {
+          size_t src_arg_index = start_arg_index + (key_indexes.at(z) * num_keys);
+          const string& arg = cmd->args[src_arg_index];
+          size_t dest_arg_index = start_arg_index + dest_key_index +
+              (z * dest_num_keys);
+          auto& dest_arg = backend_cmd.args[dest_arg_index];
+          dest_arg.data = arg.data();
+          dest_arg.size = arg.size();
+        }
+      }
     }
   }
 
@@ -1492,7 +1543,7 @@ void Proxy::command_partition_by_keys_1_integer(Client* c,
   if (cmd->args.size() == 2) {
     this->command_forward_by_key_1(c, cmd);
   } else {
-    this->command_partition_by_keys(c, cmd, 1, 1,
+    this->command_partition_by_keys(c, cmd, 1, 1, true,
         CollectionType::SumIntegerResponses);
   }
 }
@@ -1502,7 +1553,7 @@ void Proxy::command_partition_by_keys_1_multi(Client* c,
   if (cmd->args.size() == 2) {
     this->command_forward_by_key_1(c, cmd);
   } else {
-    this->command_partition_by_keys(c, cmd, 1, 1,
+    this->command_partition_by_keys(c, cmd, 1, 1, true,
         CollectionType::CollectMultiResponsesByKey);
   }
 }
@@ -1512,7 +1563,7 @@ void Proxy::command_partition_by_keys_2_status(Client* c,
   if (cmd->args.size() == 3) {
     this->command_forward_by_key_1(c, cmd);
   } else {
-    this->command_partition_by_keys(c, cmd, 1, 2,
+    this->command_partition_by_keys(c, cmd, 1, 2, true,
         CollectionType::CollectStatusResponses);
   }
 }
@@ -1917,6 +1968,34 @@ void Proxy::command_KEYS(Client* c, shared_ptr<DataCommand> cmd) {
   }
 }
 
+void Proxy::command_MEMORY(Client* c, shared_ptr<DataCommand> cmd) {
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if ((cmd->args.size() == 2) && (
+      (cmd->args[1] == "DOCTOR") || (cmd->args[1] == "MALLOC-STATS") ||
+      (cmd->args[1] == "PURGE") || (cmd->args[1] == "STATS"))) {
+    this->command_all_collect_responses(c, cmd);
+    return;
+  }
+
+  if ((cmd->args.size() == 2) && (cmd->args[1] == "HELP")) {
+    this->command_forward_random(c, cmd);
+    return;
+  }
+
+  if ((cmd->args.size() >= 3) && (cmd->args[1] == "USAGE")) {
+    this->command_forward_by_key_index(c, cmd, 2);
+    return;
+  }
+
+  this->send_client_string_response(c, "ERR unrecognized subcommand",
+      Response::Type::Error);
+}
+
 void Proxy::command_MIGRATE(Client* c, shared_ptr<DataCommand> cmd) {
   if (cmd->args.size() < 6) {
     this->send_client_string_response(c, "ERR not enough arguments",
@@ -1940,7 +2019,7 @@ void Proxy::command_MIGRATE(Client* c, shared_ptr<DataCommand> cmd) {
         return;
       }
 
-      this->command_partition_by_keys(c, cmd, arg_index, 1,
+      this->command_partition_by_keys(c, cmd, arg_index, 1, true,
           CollectionType::ModifyMigrateResponse);
     }
   }
@@ -1978,13 +2057,18 @@ void Proxy::command_MSETNX(Client* c, shared_ptr<DataCommand> cmd) {
 }
 
 void Proxy::command_OBJECT(Client* c, shared_ptr<DataCommand> cmd) {
+  if ((cmd->args.size() == 2) && (cmd->args[1] == "HELP")) {
+    this->command_forward_random(c, cmd);
+    return;
+  }
 
-  if (cmd->args.size() < 3) {
-    this->send_client_string_response(c, "ERR not enough arguments",
+  if (cmd->args.size() != 3) {
+    this->send_client_string_response(c, "ERR incorrect argument count",
         Response::Type::Error);
   } else if ((cmd->args[1] == "REFCOUNT") &&
              (cmd->args[1] == "ENCODING") &&
-             (cmd->args[1] == "IDLETIME")) {
+             (cmd->args[1] == "IDLETIME") &&
+             (cmd->args[1] == "FREQ")) {
     this->send_client_string_response(c, "PROXYERROR unsupported subcommand",
         Response::Type::Error);
   } else {
@@ -2111,6 +2195,62 @@ void Proxy::command_SCRIPT(Client* c, shared_ptr<DataCommand> cmd) {
   }
 }
 
+void Proxy::command_XREAD(Client* c, shared_ptr<DataCommand> cmd) {
+  int64_t num_args = cmd->args.size();
+  if (num_args < 3) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  int64_t arg_index = 1;
+  if (cmd->args[0] == "XREADGROUP") {
+    if (cmd->args[1] != "GROUP") {
+      this->send_client_string_response(c, "ERR GROUP is required",
+          Response::Type::Error);
+      return;
+    }
+    arg_index = 4;
+  }
+  if (arg_index >= num_args) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if (cmd->args[arg_index] == "COUNT") {
+    arg_index += 2;
+  }
+  if (arg_index >= num_args) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if (cmd->args[arg_index] == "BLOCK") {
+    this->send_client_string_response(c,
+        "PROXYERROR blocking reads are not supported", Response::Type::Error);
+    return;
+  }
+
+  if (cmd->args[arg_index] != "STREAMS") {
+    this->send_client_string_response(c, "ERR STREAMS argument expected",
+        Response::Type::Error);
+    return;
+  }
+  arg_index++;
+
+  if ((num_args - arg_index) & 1) {
+    this->send_client_string_response(c,
+        "ERR there must be an equal number of streams and IDs",
+        Response::Type::Error);
+    return;
+  }
+
+  this->command_partition_by_keys(c, cmd, arg_index, 2, false,
+      CollectionType::CollectMultiResponsesByKey);
+}
+
 void Proxy::command_ZACTIONSTORE(Client* c, shared_ptr<DataCommand> cmd) {
   // this is basically the same as command_forward_by_keys except the number of
   // checked keys is given in arg 2
@@ -2167,6 +2307,8 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"BLPOP",             &Proxy::command_unimplemented},
   {"BRPOP",             &Proxy::command_unimplemented},
   {"BRPOPLPUSH",        &Proxy::command_unimplemented},
+  {"BZPOPMAX",          &Proxy::command_unimplemented},
+  {"BZPOPMIN",          &Proxy::command_unimplemented},
   {"CLUSTER",           &Proxy::command_unimplemented},
   {"DISCARD",           &Proxy::command_unimplemented},
   {"EXEC",              &Proxy::command_unimplemented},
@@ -2254,6 +2396,7 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"LREM",              &Proxy::command_forward_by_key_1},
   {"LSET",              &Proxy::command_forward_by_key_1},
   {"LTRIM",             &Proxy::command_forward_by_key_1},
+  {"MEMORY",            &Proxy::command_MEMORY},
   {"MGET",              &Proxy::command_partition_by_keys_1_multi},
   {"MIGRATE",           &Proxy::command_MIGRATE},
   {"MSET",              &Proxy::command_partition_by_keys_2_status},
@@ -2310,12 +2453,21 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"TTL",               &Proxy::command_forward_by_key_1},
   {"TYPE",              &Proxy::command_forward_by_key_1},
   {"UNLINK",            &Proxy::command_partition_by_keys_1_integer},
+  {"XADD",              &Proxy::command_forward_by_key_1},
+  {"XLEN",              &Proxy::command_forward_by_key_1},
+  {"XPENDING",          &Proxy::command_forward_by_key_1},
+  {"XRANGE",            &Proxy::command_forward_by_key_1},
+  {"XREAD",             &Proxy::command_XREAD},
+  {"XREADGROUP",        &Proxy::command_XREAD},
+  {"XREVRANGE",         &Proxy::command_forward_by_key_1},
   {"ZADD",              &Proxy::command_forward_by_key_1},
   {"ZCARD",             &Proxy::command_forward_by_key_1},
   {"ZCOUNT",            &Proxy::command_forward_by_key_1},
   {"ZINCRBY",           &Proxy::command_forward_by_key_1},
   {"ZINTERSTORE",       &Proxy::command_ZACTIONSTORE},
   {"ZLEXCOUNT",         &Proxy::command_forward_by_key_1},
+  {"ZPOPMAX",           &Proxy::command_forward_by_key_1},
+  {"ZPOPMIN",           &Proxy::command_forward_by_key_1},
   {"ZRANGE",            &Proxy::command_forward_by_key_1},
   {"ZRANGEBYLEX",       &Proxy::command_forward_by_key_1},
   {"ZRANGEBYSCORE",     &Proxy::command_forward_by_key_1},

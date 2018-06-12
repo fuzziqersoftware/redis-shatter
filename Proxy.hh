@@ -145,7 +145,7 @@ struct Client {
 // to the client, if possible) at this time also.
 
 struct ResponseLink {
-  enum CollectionType {
+  enum class CollectionType {
     ForwardResponse = 0,
     CollectStatusResponses,
     SumIntegerResponses,
@@ -339,7 +339,7 @@ private:
       std::shared_ptr<DataCommand> cmd);
   void command_forward_random(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_partition_by_keys(Client* c, std::shared_ptr<DataCommand> cmd,
-      size_t start_arg_index, size_t args_per_key,
+      size_t start_arg_index, size_t args_per_key, bool interleaved,
       ResponseLink::CollectionType type);
   void command_partition_by_keys_1_integer(Client* c,
       std::shared_ptr<DataCommand> cmd);
@@ -363,6 +363,7 @@ private:
   void command_GEORADIUS(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_INFO(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_KEYS(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_MEMORY(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_MIGRATE(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_MSETNX(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_OBJECT(Client* c, std::shared_ptr<DataCommand> cmd);
@@ -372,6 +373,7 @@ private:
   void command_ROLE(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_SCAN(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_SCRIPT(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_XREAD(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_ZACTIONSTORE(Client* c, std::shared_ptr<DataCommand> cmd);
 
   // helpers for command implementations

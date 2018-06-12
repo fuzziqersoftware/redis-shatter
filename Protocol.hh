@@ -31,6 +31,7 @@ struct ReferenceCommand {
     const void* data;
     size_t size;
 
+    DataReference();
     DataReference(const void* data, size_t size);
     DataReference(const std::string& data);
   };

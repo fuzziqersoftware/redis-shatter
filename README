@@ -38,191 +38,212 @@ commands as possible. For some of the less-common commands, redis-shatter
 deviates from the standard Redis protocol in order to implement reasonable
 behavior. These deviations are explained in the notes in the below table.
 
-Command           -- Supported  -- Notes (see end)
+Command             -- Supported  -- Notes (see end)
 --------------------------------------------------
-APPEND            -- Yes        --
-AUTH              -- No         --
-BGREWRITEAOF      -- Yes        -- *6
-BGSAVE            -- Yes        -- *6
-BITCOUNT          -- Yes        --
-BITFIELD          -- Yes        --
-BITOP             -- Yes        -- *2
-BITPOS            -- Yes        --
-BLPOP             -- No         --
-BRPOP             -- No         --
-BRPOPLPUSH        -- No         --
-CLIENT GETNAME    -- Yes        -- *F
-CLIENT KILL       -- No         --
-CLIENT LIST       -- Yes        -- *C
-CLIENT PAUSE      -- No         --
-CLIENT REPLY      -- No         --
-CLIENT SETNAME    -- Yes        -- *F
-CLUSTER           -- No         -- *H
-COMMAND           -- Yes        -- *E
-COMMAND COUNT     -- Yes        -- *E
-COMMAND GETKEYS   -- Yes        -- *E
-COMMAND INFO      -- Yes        -- *E
-CONFIG GET        -- Yes        -- *5
-CONFIG RESETSTAT  -- Yes        -- *6
-CONFIG REWRITE    -- Yes        -- *6
-CONFIG SET        -- Yes        -- *6
-DBSIZE            -- Yes        -- *A
-DEBUG OBJECT      -- Yes        --
-DEBUG SEGFAULT    -- No         --
-DECR              -- Yes        --
-DECRBY            -- Yes        --
-DEL               -- Yes        -- *4
-DISCARD           -- No         --
-DUMP              -- Yes        --
-ECHO              -- Yes        --
-EVAL              -- Yes        -- *0 *2
-EVALSHA           -- Yes        -- *0 *2 *G
-EXEC              -- No         --
-EXISTS            -- Yes        -- *4
-EXPIRE            -- Yes        --
-EXPIREAT          -- Yes        --
-FLUSHALL          -- Yes        -- *6
-FLUSHDB           -- Yes        -- *6 *7
-GEOADD            -- Yes        --
-GEODIST           -- Yes        --
-GEOHASH           -- Yes        --
-GEOPOS            -- Yes        --
-GEORADIUS         -- Yes        -- *2
-GEORADIUSBYMEMBER -- Yes        -- *2
-GET               -- Yes        --
-GETBIT            -- Yes        --
-GETRANGE          -- Yes        --
-GETSET            -- Yes        --
-HDEL              -- Yes        --
-HEXISTS           -- Yes        --
-HGET              -- Yes        --
-HGETALL           -- Yes        --
-HINCRBY           -- Yes        --
-HINCRBYFLOAT      -- Yes        --
-HKEYS             -- Yes        --
-HLEN              -- Yes        --
-HMGET             -- Yes        --
-HMSET             -- Yes        --
-HSCAN             -- Yes        --
-HSET              -- Yes        --
-HSETNX            -- Yes        --
-HSTRLEN           -- Yes        --
-HVALS             -- Yes        --
-INCR              -- Yes        --
-INCRBY            -- Yes        --
-INCRBYFLOAT       -- Yes        --
-INFO              -- Yes        -- *8
-KEYS              -- Yes        -- *9 *A
-LASTSAVE          -- Yes        -- *5
-LINDEX            -- Yes        --
-LINSERT           -- Yes        --
-LLEN              -- Yes        --
-LPOP              -- Yes        --
-LPUSH             -- Yes        --
-LPUSHX            -- Yes        --
-LRANGE            -- Yes        --
-LREM              -- Yes        --
-LSET              -- Yes        --
-LTRIM             -- Yes        --
-MGET              -- Yes        -- *4
-MIGRATE           -- Yes        -- *4 *J
-MONITOR           -- No         --
-MOVE              -- No         --
-MSET              -- Yes        -- *4
-MSETNX            -- Yes        -- *2
-MULTI             -- No         --
-OBJECT            -- Yes        --
-PERSIST           -- Yes        --
-PEXPIRE           -- Yes        --
-PEXPIREAT         -- Yes        --
-PFADD             -- Yes        --
-PFCOUNT           -- Yes        -- *2
-PFMERGE           -- Yes        -- *2
-PING              -- Yes        --
-PSETEX            -- Yes        --
-PSUBSCRIBE        -- No         --
-PTTL              -- Yes        --
-PUBLISH           -- No         --
-PUBSUB            -- No         --
-PUNSUBSCRIBE      -- No         --
-QUIT              -- Yes        --
-RANDOMKEY         -- Yes        -- *1
-READONLY          -- No         --
-READWRITE         -- No         --
-RENAME            -- Yes        -- *2
-RENAMENX          -- Yes        -- *2
-RESTORE           -- Yes        --
-ROLE              -- Yes        -- *K
-RPOP              -- Yes        --
-RPOPLPUSH         -- Yes        -- *2
-RPUSH             -- Yes        --
-RPUSHX            -- Yes        --
-SADD              -- Yes        --
-SAVE              -- Yes        -- *6
-SCAN              -- Yes        -- *A *B
-SCARD             -- Yes        --
-SCRIPT DEBUG      -- No         --
-SCRIPT EXISTS     -- Yes        -- *D
-SCRIPT FLUSH      -- Yes        -- *6
-SCRIPT KILL       -- No         -- *H
-SCRIPT LOAD       -- Yes        -- *6
-SDIFF             -- Yes        -- *2
-SDIFFSTORE        -- Yes        -- *2
-SELECT            -- No         --
-SET               -- Yes        --
-SETBIT            -- Yes        --
-SETEX             -- Yes        --
-SETNX             -- Yes        --
-SETRANGE          -- Yes        --
-SHUTDOWN          -- Yes        -- *6
-SINTER            -- Yes        -- *2
-SINTERSTORE       -- Yes        -- *2
-SISMEMBER         -- Yes        --
-SLAVEOF           -- No         -- *H
-SLOWLOG           -- Yes        -- *5
-SMEMBERS          -- Yes        --
-SMOVE             -- Yes        -- *2
-SORT              -- Yes        -- *2 *3
-SPOP              -- Yes        --
-SRANDMEMBER       -- Yes        --
-SREM              -- Yes        --
-SSCAN             -- Yes        --
-STRLEN            -- Yes        --
-SUBSCRIBE         -- No         --
-SUNION            -- Yes        -- *2
-SUNIONSTORE       -- Yes        -- *2
-SWAPDB            -- No         --
-SYNC              -- No         --
-TIME              -- Yes        -- *6
-TOUCH             -- Yes        --
-TTL               -- Yes        --
-TYPE              -- Yes        --
-UNLINK            -- Yes        -- *4
-UNSUBSCRIBE       -- No         --
-UNWATCH           -- No         --
-WAIT              -- No         --
-WATCH             -- No         --
-ZADD              -- Yes        --
-ZCARD             -- Yes        --
-ZCOUNT            -- Yes        --
-ZINCRBY           -- Yes        --
-ZINTERSTORE       -- Yes        -- *2
-ZLEXCOUNT         -- Yes        --
-ZRANGE            -- Yes        --
-ZRANGEBYLEX       -- Yes        --
-ZRANGEBYSCORE     -- Yes        --
-ZRANK             -- Yes        --
-ZREM              -- Yes        --
-ZREMRANGEBYLEX    -- Yes        --
-ZREMRANGEBYRANK   -- Yes        --
-ZREMRANGEBYSCORE  -- Yes        --
-ZREVRANGE         -- Yes        --
-ZREVRANGEBYLEX    -- Yes        --
-ZREVRANGEBYSCORE  -- Yes        --
-ZREVRANK          -- Yes        --
-ZSCAN             -- Yes        --
-ZSCORE            -- Yes        --
-ZUNIONSTORE       -- Yes        -- *2
+APPEND              -- Yes        --
+AUTH                -- No         --
+BGREWRITEAOF        -- Yes        -- *6
+BGSAVE              -- Yes        -- *6
+BITCOUNT            -- Yes        --
+BITFIELD            -- Yes        --
+BITOP               -- Yes        -- *2
+BITPOS              -- Yes        --
+BLPOP               -- No         --
+BRPOP               -- No         --
+BRPOPLPUSH          -- No         --
+BZPOPMAX            -- No         --
+BZPOPMIN            -- No         --
+CLIENT GETNAME      -- Yes        -- *F
+CLIENT KILL         -- No         --
+CLIENT LIST         -- Yes        -- *C
+CLIENT PAUSE        -- No         --
+CLIENT REPLY        -- No         --
+CLIENT SETNAME      -- Yes        -- *F
+CLUSTER             -- No         -- *H
+COMMAND             -- Yes        -- *E
+COMMAND COUNT       -- Yes        -- *E
+COMMAND GETKEYS     -- Yes        -- *E
+COMMAND INFO        -- Yes        -- *E
+CONFIG GET          -- Yes        -- *5
+CONFIG RESETSTAT    -- Yes        -- *6
+CONFIG REWRITE      -- Yes        -- *6
+CONFIG SET          -- Yes        -- *6
+DBSIZE              -- Yes        -- *A
+DEBUG OBJECT        -- Yes        --
+DEBUG SEGFAULT      -- No         --
+DECR                -- Yes        --
+DECRBY              -- Yes        --
+DEL                 -- Yes        -- *4
+DISCARD             -- No         --
+DUMP                -- Yes        --
+ECHO                -- Yes        --
+EVAL                -- Yes        -- *0 *2
+EVALSHA             -- Yes        -- *0 *2 *G
+EXEC                -- No         --
+EXISTS              -- Yes        -- *4
+EXPIRE              -- Yes        --
+EXPIREAT            -- Yes        --
+FLUSHALL            -- Yes        -- *6
+FLUSHDB             -- Yes        -- *6 *7
+GEOADD              -- Yes        --
+GEODIST             -- Yes        --
+GEOHASH             -- Yes        --
+GEOPOS              -- Yes        --
+GEORADIUS           -- Yes        -- *2
+GEORADIUSBYMEMBER   -- Yes        -- *2
+GET                 -- Yes        --
+GETBIT              -- Yes        --
+GETRANGE            -- Yes        --
+GETSET              -- Yes        --
+HDEL                -- Yes        --
+HEXISTS             -- Yes        --
+HGET                -- Yes        --
+HGETALL             -- Yes        --
+HINCRBY             -- Yes        --
+HINCRBYFLOAT        -- Yes        --
+HKEYS               -- Yes        --
+HLEN                -- Yes        --
+HMGET               -- Yes        --
+HMSET               -- Yes        --
+HSCAN               -- Yes        --
+HSET                -- Yes        --
+HSETNX              -- Yes        --
+HSTRLEN             -- Yes        --
+HVALS               -- Yes        --
+INCR                -- Yes        --
+INCRBY              -- Yes        --
+INCRBYFLOAT         -- Yes        --
+INFO                -- Yes        -- *8
+KEYS                -- Yes        -- *9 *A
+LASTSAVE            -- Yes        -- *5
+LINDEX              -- Yes        --
+LINSERT             -- Yes        --
+LLEN                -- Yes        --
+LPOP                -- Yes        --
+LPUSH               -- Yes        --
+LPUSHX              -- Yes        --
+LRANGE              -- Yes        --
+LREM                -- Yes        --
+LSET                -- Yes        --
+LTRIM               -- Yes        --
+MEMORY DOCTOR       -- Yes        -- *5
+MEMORY HELP         -- Yes        -- *E
+MEMORY MALLOC-STATS -- Yes        -- *5
+MEMORY PURGE        -- Yes        -- *5
+MEMORY STATS        -- Yes        -- *5
+MEMORY USAGE        -- Yes        --
+MGET                -- Yes        -- *4
+MIGRATE             -- Yes        -- *4 *J
+MONITOR             -- No         --
+MOVE                -- No         --
+MSET                -- Yes        -- *4
+MSETNX              -- Yes        -- *2
+MULTI               -- No         --
+OBJECT ENCODING     -- Yes        --
+OBJECT FREQ         -- Yes        --
+OBJECT IDLETIME     -- Yes        --
+OBJECT REFCOUNT     -- Yes        --
+OBJECT HELP         -- Yes        -- *E
+PERSIST             -- Yes        --
+PEXPIRE             -- Yes        --
+PEXPIREAT           -- Yes        --
+PFADD               -- Yes        --
+PFCOUNT             -- Yes        -- *2
+PFMERGE             -- Yes        -- *2
+PING                -- Yes        --
+PSETEX              -- Yes        --
+PSUBSCRIBE          -- No         --
+PTTL                -- Yes        --
+PUBLISH             -- No         --
+PUBSUB              -- No         --
+PUNSUBSCRIBE        -- No         --
+QUIT                -- Yes        --
+RANDOMKEY           -- Yes        -- *1
+READONLY            -- No         --
+READWRITE           -- No         --
+RENAME              -- Yes        -- *2
+RENAMENX            -- Yes        -- *2
+RESTORE             -- Yes        --
+ROLE                -- Yes        -- *K
+RPOP                -- Yes        --
+RPOPLPUSH           -- Yes        -- *2
+RPUSH               -- Yes        --
+RPUSHX              -- Yes        --
+SADD                -- Yes        --
+SAVE                -- Yes        -- *6
+SCAN                -- Yes        -- *A *B
+SCARD               -- Yes        --
+SCRIPT DEBUG        -- No         --
+SCRIPT EXISTS       -- Yes        -- *D
+SCRIPT FLUSH        -- Yes        -- *6
+SCRIPT KILL         -- No         -- *H
+SCRIPT LOAD         -- Yes        -- *6
+SDIFF               -- Yes        -- *2
+SDIFFSTORE          -- Yes        -- *2
+SELECT              -- No         --
+SET                 -- Yes        --
+SETBIT              -- Yes        --
+SETEX               -- Yes        --
+SETNX               -- Yes        --
+SETRANGE            -- Yes        --
+SHUTDOWN            -- Yes        -- *6
+SINTER              -- Yes        -- *2
+SINTERSTORE         -- Yes        -- *2
+SISMEMBER           -- Yes        --
+SLAVEOF             -- No         -- *H
+SLOWLOG             -- Yes        -- *5
+SMEMBERS            -- Yes        --
+SMOVE               -- Yes        -- *2
+SORT                -- Yes        -- *2 *3
+SPOP                -- Yes        --
+SRANDMEMBER         -- Yes        --
+SREM                -- Yes        --
+SSCAN               -- Yes        --
+STRLEN              -- Yes        --
+SUBSCRIBE           -- No         --
+SUNION              -- Yes        -- *2
+SUNIONSTORE         -- Yes        -- *2
+SWAPDB              -- No         --
+SYNC                -- No         --
+TIME                -- Yes        -- *6
+TOUCH               -- Yes        --
+TTL                 -- Yes        --
+TYPE                -- Yes        --
+UNLINK              -- Yes        -- *4
+UNSUBSCRIBE         -- No         --
+UNWATCH             -- No         --
+WAIT                -- No         --
+WATCH               -- No         --
+XADD                -- Yes        --
+XLEN                -- Yes        --
+XPENDING            -- Yes        --
+XRANGE              -- Yes        --
+XREAD               -- Yes        -- *L
+XREADGROUP          -- Yes        -- *L
+XREVRANGE           -- Yes        --
+ZADD                -- Yes        --
+ZCARD               -- Yes        --
+ZCOUNT              -- Yes        --
+ZINCRBY             -- Yes        --
+ZINTERSTORE         -- Yes        -- *2
+ZLEXCOUNT           -- Yes        --
+ZPOPMAX             -- Yes        --
+ZPOPMIN             -- Yes        --
+ZRANGE              -- Yes        --
+ZRANGEBYLEX         -- Yes        --
+ZRANGEBYSCORE       -- Yes        --
+ZRANK               -- Yes        --
+ZREM                -- Yes        --
+ZREMRANGEBYLEX      -- Yes        --
+ZREMRANGEBYRANK     -- Yes        --
+ZREMRANGEBYSCORE    -- Yes        --
+ZREVRANGE           -- Yes        --
+ZREVRANGEBYLEX      -- Yes        --
+ZREVRANGEBYSCORE    -- Yes        --
+ZREVRANK            -- Yes        --
+ZSCAN               -- Yes        --
+ZSCORE              -- Yes        --
+ZUNIONSTORE         -- Yes        -- *2
 
 Notes:
 *0 -- Scripts that affect no keys will run on a random backend.
@@ -295,6 +316,8 @@ Notes:
 *K -- This command returns a multi response with two fields. The first field is
       the string "proxy"; the second field is a multi response containing the
       names of all of the backends.
+*L -- Blocking reads are not supported (the BLOCK argument to these commands
+      must not be given).
 
 
 Administration
