@@ -91,6 +91,7 @@ struct CommandParser {
     ReadingNewlineAfterArgumentData,
   };
   State state;
+  const char* error_str;
 
   int64_t num_command_args;
   std::shared_ptr<DataCommand> command_in_progress;
@@ -101,6 +102,8 @@ struct CommandParser {
   ~CommandParser() = default;
 
   std::shared_ptr<DataCommand> resume(struct evbuffer* buffer);
+
+  const char* error() const;
 };
 
 struct ResponseParser {
@@ -111,6 +114,7 @@ struct ResponseParser {
     ReadingNewlineAfterData,
   };
   State state;
+  const char* error_str;
 
   std::shared_ptr<Response> response_in_progress;
   int64_t data_bytes_remaining;
@@ -123,4 +127,6 @@ struct ResponseParser {
 
   std::shared_ptr<Response> resume(struct evbuffer* buffer);
   bool forward(struct evbuffer* buffer, struct evbuffer* output_buffer);
+
+  const char* error() const;
 };

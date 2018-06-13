@@ -1114,6 +1114,11 @@ void Proxy::on_client_input(struct bufferevent *bev) {
       this->stats->num_commands_received++;
       this->handle_client_command(&c, cmd);
     }
+    if (c.parser.error()) {
+      log(WARNING, "parse error in client %s input stream",
+          c.debug_name.c_str(), c.parser.error());
+      c.should_disconnect = true;
+    }
 
   } catch (const exception& e) {
     log(WARNING, "error in client %s input stream: %s", c.debug_name.c_str(),
@@ -1174,7 +1179,7 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
       } catch (const exception& e) {
         log(WARNING, "parse error in backend stream %s (%s)",
             conn->backend->debug_name.c_str(), e.what());
-        this->disconnect_backend(conn); // same as getting a BEV_EVENT_EOF
+        this->disconnect_backend(conn);
         break;
       }
 
@@ -1214,12 +1219,17 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
       try {
         rsp = conn->parser.resume(in_buffer);
       } catch (const exception& e) {
-        log(WARNING, "parse error in backend stream %s (%d)",
+        log(WARNING, "parse error in backend stream %s (%s)",
             conn->backend->debug_name.c_str(), e.what());
-        this->disconnect_backend(conn); // same as getting a BEV_EVENT_EOF
+        this->disconnect_backend(conn);
         break;
       }
       if (!rsp.get()) {
+        if (conn->parser.error()) {
+          log(WARNING, "parse error in backend stream %s",
+              conn->backend->debug_name.c_str());
+          this->disconnect_backend(conn);
+        }
         break;
       }
 
@@ -1228,6 +1238,12 @@ void Proxy::on_backend_input(struct bufferevent *bev) {
       this->stats->num_responses_received++;
       this->handle_backend_response(conn, rsp);
     }
+  }
+
+  if (conn->parser.error()) {
+    log(WARNING, "parse error in backend stream %s (%s)",
+        conn->backend->debug_name.c_str(), conn->parser.error());
+    this->disconnect_backend(conn);
   }
 }
 

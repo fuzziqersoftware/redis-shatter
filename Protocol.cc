@@ -15,8 +15,9 @@
 using namespace std;
 
 
-static string evbuffer_readln_alloc(struct evbuffer* buf,
-    enum evbuffer_eol_style eol_style) {
+
+static size_t evbuffer_readln_into(struct evbuffer* buf, char* buffer,
+    size_t buffer_size, enum evbuffer_eol_style eol_style, bool drain = true) {
 
   size_t eol_len;
   struct evbuffer_ptr ptr = evbuffer_search_eol(buf, NULL, &eol_len, eol_style);
@@ -24,10 +25,15 @@ static string evbuffer_readln_alloc(struct evbuffer* buf,
     throw out_of_range("no line available");
   }
 
-  string ret(ptr.pos, 0);
-  evbuffer_remove(buf, const_cast<char*>(ret.data()), ptr.pos);
-  evbuffer_drain(buf, eol_len);
-  return ret;
+  if (ptr.pos < buffer_size) {
+    evbuffer_copyout(buf, buffer, ptr.pos);
+    buffer[ptr.pos] = 0;
+    if (drain) {
+      evbuffer_drain(buf, ptr.pos + eol_len);
+    }
+    return ptr.pos;
+  }
+  throw runtime_error("line too long");
 }
 
 
@@ -443,18 +449,26 @@ void Response::write_int(struct evbuffer* buf, int64_t value,
 
 
 
-CommandParser::CommandParser() : state(State::Initial) { }
+CommandParser::CommandParser() : state(State::Initial), error_str(NULL) { }
+
+const char* CommandParser::error() const {
+  return this->error_str;
+}
 
 shared_ptr<DataCommand> CommandParser::resume(struct evbuffer* buf) {
+  char input_line[0x100];
   for (;;) {
     switch (this->state) {
       case State::Initial: {
         // expect "*num_args\r\n", or inline command
-        string input_line;
         try {
-          input_line = evbuffer_readln_alloc(buf, EVBUFFER_EOL_CRLF);
-        } catch (const out_of_range& e) {
+          evbuffer_readln_into(buf, input_line, sizeof(input_line),
+              EVBUFFER_EOL_CRLF);
+        } catch (const out_of_range&) {
           return NULL; // complete line not yet available
+        } catch (const runtime_error& e) {
+          this->error_str = "line too long";
+          return NULL;
         }
 
         if (input_line[0] != '*') {
@@ -491,11 +505,14 @@ shared_ptr<DataCommand> CommandParser::resume(struct evbuffer* buf) {
 
       case State::ReadingArgumentSize: {
         // expect "$arg_size\r\n"
-        string input_line;
         try {
-          input_line = evbuffer_readln_alloc(buf, EVBUFFER_EOL_CRLF);
-        } catch (const out_of_range& e) {
+          evbuffer_readln_into(buf, input_line, sizeof(input_line),
+              EVBUFFER_EOL_CRLF);
+        } catch (const out_of_range&) {
           return NULL; // complete line not yet available
+        } catch (const runtime_error& e) {
+          this->error_str = "line too long";
+          return NULL;
         }
 
         if (input_line[0] != '$') {
@@ -572,25 +589,32 @@ shared_ptr<DataCommand> CommandParser::resume(struct evbuffer* buf) {
 
 
 
-ResponseParser::ResponseParser() : state(State::Initial) { }
+ResponseParser::ResponseParser() : state(State::Initial), error_str(NULL) { }
+
+const char* ResponseParser::error() const {
+  return this->error_str;
+}
 
 shared_ptr<Response> ResponseParser::resume(struct evbuffer* buf) {
+  char input_line[0x100];
   for (;;) {
     switch (this->state) {
       case State::Initial: {
-        string input_line;
         try {
-          input_line = evbuffer_readln_alloc(buf, EVBUFFER_EOL_CRLF);
-        } catch (const out_of_range& e) {
+          evbuffer_readln_into(buf, input_line, sizeof(input_line),
+              EVBUFFER_EOL_CRLF);
+        } catch (const out_of_range&) {
           return NULL; // complete line not yet available
+        } catch (const runtime_error& e) {
+          this->error_str = "line too long";
+          return NULL;
         }
 
         switch (input_line[0]) {
           case Response::Type::Status:
           case Response::Type::Error: {
             shared_ptr<Response> resp(new Response((Response::Type)input_line[0], (int64_t)0));
-            input_line.erase(0, 1);
-            resp->data = move(input_line);
+            resp->data.assign(&input_line[1]);
             return resp;
           }
 
@@ -703,20 +727,26 @@ bool ResponseParser::forward(struct evbuffer* buf,
 
   // output_buffer can be NULL if the client has already disconnected. in this
   // case, we just don't write to the output buffer (discard the response).
+  char input_line[0x100];
+  size_t input_line_size;
   for (;;) {
     switch (this->state) {
       case State::Initial: {
-        string input_line;
         try {
-          input_line = evbuffer_readln_alloc(buf, EVBUFFER_EOL_CRLF);
-        } catch (const out_of_range& e) {
+          input_line_size = evbuffer_readln_into(buf, input_line,
+              sizeof(input_line), EVBUFFER_EOL_CRLF, false);
+        } catch (const out_of_range&) {
           return false; // complete line not yet available
+        } catch (const runtime_error& e) {
+          this->error_str = "line too long";
+          return false;
         }
 
-        // forward the line to the client immediately
+        // forward the line to the client immediately. unlike in resume(), we
+        // didn't drain it from the input buffer, so hopefully we can just move
+        // the data between buffers instead of copying. add 2 for the \r\n
         if (output_buffer) {
-          evbuffer_add(output_buffer, input_line.data(), input_line.size());
-          evbuffer_add(output_buffer, "\r\n", 2);
+          evbuffer_remove_buffer(buf, output_buffer, input_line_size + 2);
         }
 
         switch (input_line[0]) {
