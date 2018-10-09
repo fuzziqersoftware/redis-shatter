@@ -373,6 +373,8 @@ private:
   void command_ROLE(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_SCAN(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_SCRIPT(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_XGROUP(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_XINFO(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_XREAD(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_ZACTIONSTORE(Client* c, std::shared_ptr<DataCommand> cmd);
 

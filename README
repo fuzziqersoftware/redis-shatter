@@ -214,13 +214,19 @@ UNSUBSCRIBE         -- No         --
 UNWATCH             -- No         --
 WAIT                -- No         --
 WATCH               -- No         --
+XACK                -- Yes        --
 XADD                -- Yes        --
+XCLAIM              -- Yes        --
+XDEL                -- Yes        --
+XGROUP              -- Yes        --
+XINFO               -- Yes        --
 XLEN                -- Yes        --
 XPENDING            -- Yes        --
 XRANGE              -- Yes        --
 XREAD               -- Yes        -- *L
 XREADGROUP          -- Yes        -- *L
 XREVRANGE           -- Yes        --
+XTRIM               -- Yes        --
 ZADD                -- Yes        --
 ZCARD               -- Yes        --
 ZCOUNT              -- Yes        --

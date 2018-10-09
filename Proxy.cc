@@ -2211,6 +2211,51 @@ void Proxy::command_SCRIPT(Client* c, shared_ptr<DataCommand> cmd) {
   }
 }
 
+void Proxy::command_XGROUP(Client* c, shared_ptr<DataCommand> cmd) {
+  int64_t num_args = cmd->args.size();
+  if (num_args < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if (cmd->args[1] == "HELP") {
+    this->command_forward_random(c, cmd);
+
+  } else if ((cmd->args[1] == "CREATE") ||
+             (cmd->args[1] == "SETID") ||
+             (cmd->args[1] == "DESTROY") ||
+             (cmd->args[1] == "DELCONSUMER")) {
+    this->command_forward_by_key_index(c, cmd, 2);
+
+  } else {
+    this->send_client_string_response(c, "ERR unknown subcommand",
+        Response::Type::Error);
+  }
+}
+
+void Proxy::command_XINFO(Client* c, shared_ptr<DataCommand> cmd) {
+  int64_t num_args = cmd->args.size();
+  if (num_args < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if (cmd->args[1] == "HELP") {
+    this->command_forward_random(c, cmd);
+
+  } else if ((cmd->args[1] == "CONSUMERS") ||
+             (cmd->args[1] == "GROUPS") ||
+             (cmd->args[1] == "STREAM")) {
+    this->command_forward_by_key_index(c, cmd, 2);
+
+  } else {
+    this->send_client_string_response(c, "ERR unknown subcommand",
+        Response::Type::Error);
+  }
+}
+
 void Proxy::command_XREAD(Client* c, shared_ptr<DataCommand> cmd) {
   int64_t num_args = cmd->args.size();
   if (num_args < 3) {
@@ -2469,13 +2514,19 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"TTL",               &Proxy::command_forward_by_key_1},
   {"TYPE",              &Proxy::command_forward_by_key_1},
   {"UNLINK",            &Proxy::command_partition_by_keys_1_integer},
+  {"XACK",              &Proxy::command_forward_by_key_1},
   {"XADD",              &Proxy::command_forward_by_key_1},
+  {"XCLAIM",            &Proxy::command_forward_by_key_1},
+  {"XDEL",              &Proxy::command_forward_by_key_1},
+  {"XGROUP",            &Proxy::command_XGROUP},
+  {"XINFO",             &Proxy::command_XINFO},
   {"XLEN",              &Proxy::command_forward_by_key_1},
   {"XPENDING",          &Proxy::command_forward_by_key_1},
   {"XRANGE",            &Proxy::command_forward_by_key_1},
   {"XREAD",             &Proxy::command_XREAD},
   {"XREADGROUP",        &Proxy::command_XREAD},
   {"XREVRANGE",         &Proxy::command_forward_by_key_1},
+  {"XTRIM",             &Proxy::command_forward_by_key_1},
   {"ZADD",              &Proxy::command_forward_by_key_1},
   {"ZCARD",             &Proxy::command_forward_by_key_1},
   {"ZCOUNT",            &Proxy::command_forward_by_key_1},
