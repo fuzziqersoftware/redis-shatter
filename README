@@ -163,6 +163,7 @@ READONLY            -- No         --
 READWRITE           -- No         --
 RENAME              -- Yes        -- *2
 RENAMENX            -- Yes        -- *2
+REPLICAOF           -- No         -- *H
 RESTORE             -- Yes        --
 ROLE                -- Yes        -- *K
 RPOP                -- Yes        --
