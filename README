@@ -54,11 +54,13 @@ BRPOPLPUSH          -- No         --
 BZPOPMAX            -- No         --
 BZPOPMIN            -- No         --
 CLIENT GETNAME      -- Yes        -- *F
+CLIENT ID           -- No         --
 CLIENT KILL         -- No         --
 CLIENT LIST         -- Yes        -- *C
 CLIENT PAUSE        -- No         --
 CLIENT REPLY        -- No         --
 CLIENT SETNAME      -- Yes        -- *F
+CLIENT UNBLOCK      -- No         --
 CLUSTER             -- No         -- *H
 COMMAND             -- Yes        -- *E
 COMMAND COUNT       -- Yes        -- *E
