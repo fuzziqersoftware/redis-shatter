@@ -1984,6 +1984,29 @@ void Proxy::command_KEYS(Client* c, shared_ptr<DataCommand> cmd) {
   }
 }
 
+void Proxy::command_LATENCY(Client* c, shared_ptr<DataCommand> cmd) {
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if ((cmd->args[1] == "DOCTOR") || (cmd->args[1] == "GRAPH") ||
+      (cmd->args[1] == "RESET") || (cmd->args[1] == "LATEST") ||
+      (cmd->args[1] == "HISTORY")) {
+    this->command_all_collect_responses(c, cmd);
+    return;
+  }
+
+  if ((cmd->args.size() == 2) && (cmd->args[1] == "HELP")) {
+    this->command_forward_random(c, cmd);
+    return;
+  }
+
+  this->send_client_string_response(c, "ERR unrecognized subcommand",
+      Response::Type::Error);
+}
+
 void Proxy::command_MEMORY(Client* c, shared_ptr<DataCommand> cmd) {
   if (cmd->args.size() < 2) {
     this->send_client_string_response(c, "ERR not enough arguments",
@@ -2039,6 +2062,23 @@ void Proxy::command_MIGRATE(Client* c, shared_ptr<DataCommand> cmd) {
           CollectionType::ModifyMigrateResponse);
     }
   }
+}
+
+void Proxy::command_MODULE(Client* c, shared_ptr<DataCommand> cmd) {
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if ((cmd->args[1] == "LIST") || (cmd->args[1] == "LOAD") ||
+      (cmd->args[1] == "UNLOAD")) {
+    this->command_all_collect_responses(c, cmd);
+    return;
+  }
+
+  this->send_client_string_response(c, "ERR unrecognized subcommand",
+      Response::Type::Error);
 }
 
 void Proxy::command_MSETNX(Client* c, shared_ptr<DataCommand> cmd) {
@@ -2447,9 +2487,11 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"INFO",              &Proxy::command_INFO},
   {"KEYS",              &Proxy::command_KEYS},
   {"LASTSAVE",          &Proxy::command_all_collect_responses},
+  {"LATENCY",           &Proxy::command_LATENCY},
   {"LINDEX",            &Proxy::command_forward_by_key_1},
   {"LINSERT",           &Proxy::command_forward_by_key_1},
   {"LLEN",              &Proxy::command_forward_by_key_1},
+  {"LOLWUT",            &Proxy::command_forward_random},
   {"LPOP",              &Proxy::command_forward_by_key_1},
   {"LPUSH",             &Proxy::command_forward_by_key_1},
   {"LPUSHX",            &Proxy::command_forward_by_key_1},
@@ -2460,6 +2502,7 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"MEMORY",            &Proxy::command_MEMORY},
   {"MGET",              &Proxy::command_partition_by_keys_1_multi},
   {"MIGRATE",           &Proxy::command_MIGRATE},
+  {"MODULE",            &Proxy::command_MODULE},
   {"MSET",              &Proxy::command_partition_by_keys_2_status},
   {"MSETNX",            &Proxy::command_MSETNX},
   {"OBJECT",            &Proxy::command_OBJECT},

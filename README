@@ -118,9 +118,16 @@ INCRBYFLOAT         -- Yes        --
 INFO                -- Yes        -- *8
 KEYS                -- Yes        -- *9 *A
 LASTSAVE            -- Yes        -- *5
+LATENCY DOCTOR      -- Yes        -- *5
+LATENCY GRAPH       -- Yes        -- *5
+LATENCY RESET       -- Yes        -- *5
+LATENCY LATEST      -- Yes        -- *5
+LATENCY HISTORY     -- Yes        -- *5
+LATENCY HELP        -- Yes        -- *E
 LINDEX              -- Yes        --
 LINSERT             -- Yes        --
 LLEN                -- Yes        --
+LOLWUT              -- Yes        -- *E
 LPOP                -- Yes        --
 LPUSH               -- Yes        --
 LPUSHX              -- Yes        --
@@ -136,6 +143,9 @@ MEMORY STATS        -- Yes        -- *5
 MEMORY USAGE        -- Yes        --
 MGET                -- Yes        -- *4
 MIGRATE             -- Yes        -- *4 *J
+MODULE LIST         -- Yes        -- *5
+MODULE LOAD         -- Yes        -- *5
+MODULE UNLOAD       -- Yes        -- *5
 MONITOR             -- No         --
 MOVE                -- No         --
 MSET                -- Yes        -- *4

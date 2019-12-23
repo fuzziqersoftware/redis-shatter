@@ -363,8 +363,10 @@ private:
   void command_GEORADIUS(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_INFO(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_KEYS(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_LATENCY(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_MEMORY(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_MIGRATE(Client* c, std::shared_ptr<DataCommand> cmd);
+  void command_MODULE(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_MSETNX(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_OBJECT(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_PING(Client* c, std::shared_ptr<DataCommand> cmd);
