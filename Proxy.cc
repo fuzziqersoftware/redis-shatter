@@ -972,7 +972,14 @@ void Proxy::handle_backend_response(BackendConnection* conn,
         break;
 
       case CollectionType::CollectStatusResponses:
-        if (r->type != Response::Type::Status) {
+        if (r->type == Response::Type::Error) {
+          if (!l->error_response.get()) {
+            l->error_response.reset(new Response(Response::Type::Error,
+                "CHANNELERROR one of more backends returned error responses:"));
+          }
+          l->error_response->data += string_printf(" (%s) %s",
+              conn->backend->name.c_str(), r->data.c_str());
+        } else if (r->type != Response::Type::Status) {
           l->error_response = wrong_type_error_response;
         }
         break;
@@ -1361,6 +1368,11 @@ void Proxy::command_all_collect_status_responses(Client* c,
   this->command_forward_all(c, cmd, CollectionType::CollectStatusResponses);
 }
 
+void Proxy::command_all_sum_int_responses(Client* c,
+    shared_ptr<DataCommand> cmd) {
+  this->command_forward_all(c, cmd, CollectionType::SumIntegerResponses);
+}
+
 void Proxy::command_forward_all(Client* c, shared_ptr<DataCommand> cmd,
     CollectionType type) {
   auto l = this->create_link(type, c);
@@ -1508,7 +1520,8 @@ void Proxy::command_partition_by_keys(Client* c, shared_ptr<DataCommand> cmd,
       backend_key_indexes[backend_index].emplace_back(y);
     }
 
-    for (int64_t backend_index = 0; backend_index < this->backends.size();
+    for (int64_t backend_index = 0;
+         backend_index < static_cast<ssize_t>(this->backends.size());
          backend_index++) {
       const auto& key_indexes = backend_key_indexes.at(backend_index);
       if (key_indexes.empty()) {
@@ -1602,6 +1615,40 @@ void Proxy::command_default(Client* c, shared_ptr<DataCommand> cmd) {
 
 ////////////////////////////////////////////////////////////////////////////////
 // specific command implementations
+
+void Proxy::command_ACL(Client* c, shared_ptr<DataCommand> cmd) {
+  if (cmd->args.size() < 2) {
+    this->send_client_string_response(c, "ERR not enough arguments",
+        Response::Type::Error);
+    return;
+  }
+
+  if ((cmd->args[1] == "LOAD") || (cmd->args[1] == "SAVE") ||
+      (cmd->args[1] == "SETUSER")) {
+    this->command_all_collect_status_responses(c, cmd);
+    return;
+  }
+
+  if ((cmd->args[1] == "GETUSER") || (cmd->args[1] == "LIST") ||
+      (cmd->args[1] == "LOG") || (cmd->args[1] == "USERS")) {
+    this->command_all_collect_responses(c, cmd);
+    return;
+  }
+
+  if (cmd->args[1] == "DELUSER") {
+    this->command_all_sum_int_responses(c, cmd);
+    return;
+  }
+
+  if ((cmd->args[1] == "CAT") || (cmd->args[1] == "GENPASS") ||
+      (cmd->args[1] == "HELP")) {
+    this->command_forward_random(c, cmd);
+    return;
+  }
+
+  this->send_client_string_response(c, "ERR unrecognized subcommand",
+      Response::Type::Error);
+}
 
 void Proxy::command_BACKEND(Client* c, shared_ptr<DataCommand> cmd) {
   if (cmd->args.size() < 2) {
@@ -2432,6 +2479,7 @@ const unordered_map<string, Proxy::command_handler> Proxy::default_handlers({
   {"WAIT",              &Proxy::command_unimplemented},
   {"WATCH",             &Proxy::command_unimplemented},
 
+  {"ACL",               &Proxy::command_ACL},
   {"APPEND",            &Proxy::command_forward_by_key_1},
   {"BGREWRITEAOF",      &Proxy::command_all_collect_status_responses},
   {"BGSAVE",            &Proxy::command_all_collect_status_responses},

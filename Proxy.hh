@@ -325,6 +325,8 @@ private:
       std::shared_ptr<DataCommand> cmd);
   void command_all_collect_status_responses(Client* c,
       std::shared_ptr<DataCommand> cmd);
+  void command_all_sum_int_responses(Client* c,
+      std::shared_ptr<DataCommand> cmd);
   void command_forward_all(Client* c, std::shared_ptr<DataCommand> cmd,
       ResponseLink::CollectionType type);
   void command_forward_by_key_1(Client* c, std::shared_ptr<DataCommand> cmd);
@@ -351,6 +353,7 @@ private:
   void command_default(Client* c, std::shared_ptr<DataCommand> cmd);
 
   // specific command implementations
+  void command_ACL(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_BACKEND(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_BACKENDNUM(Client* c, std::shared_ptr<DataCommand> cmd);
   void command_BACKENDS(Client* c, std::shared_ptr<DataCommand> cmd);

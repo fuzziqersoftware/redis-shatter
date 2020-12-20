@@ -25,7 +25,7 @@ static size_t evbuffer_readln_into(struct evbuffer* buf, char* buffer,
     throw out_of_range("no line available");
   }
 
-  if (ptr.pos < buffer_size) {
+  if (ptr.pos < static_cast<ssize_t>(buffer_size)) {
     evbuffer_copyout(buf, buffer, ptr.pos);
     buffer[ptr.pos] = 0;
     if (drain) {

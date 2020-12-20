@@ -39,7 +39,19 @@ deviates from the standard Redis protocol in order to implement reasonable
 behavior. These deviations are explained in the notes in the below table.
 
 Command             -- Supported  -- Notes (see end)
---------------------------------------------------
+----------------------------------------------------
+ACL CAT             -- Yes        -- *E
+ACL DELUSER         -- Yes        -- *6
+ACL GENPASS         -- Yes        -- *E
+ACL GETUSER         -- Yes        -- *5
+ACL HELP            -- Yes        -- *E
+ACL LIST            -- Yes        -- *5
+ACL LOAD            -- Yes        -- *6
+ACL LOG             -- Yes        -- *5
+ACL SAVE            -- Yes        -- *6
+ACL SETUSER         -- Yes        -- *6
+ACL USERS           -- Yes        -- *5
+ACL WHOAMI          -- No         --
 APPEND              -- Yes        --
 AUTH                -- No         --
 BGREWRITEAOF        -- Yes        -- *6
@@ -53,13 +65,16 @@ BRPOP               -- No         --
 BRPOPLPUSH          -- No         --
 BZPOPMAX            -- No         --
 BZPOPMIN            -- No         --
+CLIENT CACHING      -- No         --
 CLIENT GETNAME      -- Yes        -- *F
+CLIENT GETREDIR     -- No         --
 CLIENT ID           -- No         --
 CLIENT KILL         -- No         --
 CLIENT LIST         -- Yes        -- *C
 CLIENT PAUSE        -- No         --
 CLIENT REPLY        -- No         --
 CLIENT SETNAME      -- Yes        -- *F
+CLIENT TRACKING     -- No         --
 CLIENT UNBLOCK      -- No         --
 CLUSTER             -- No         -- *H
 COMMAND             -- Yes        -- *E
@@ -98,6 +113,7 @@ GETBIT              -- Yes        --
 GETRANGE            -- Yes        --
 GETSET              -- Yes        --
 HDEL                -- Yes        --
+HELLO               -- No         --
 HEXISTS             -- Yes        --
 HGET                -- Yes        --
 HGETALL             -- Yes        --
@@ -203,6 +219,7 @@ SHUTDOWN            -- Yes        -- *6
 SINTER              -- Yes        -- *2
 SINTERSTORE         -- Yes        -- *2
 SISMEMBER           -- Yes        --
+STRALGO             -- No         --
 SLAVEOF             -- No         -- *H
 SLOWLOG             -- Yes        -- *5
 SMEMBERS            -- Yes        --
